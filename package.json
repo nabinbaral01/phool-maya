@@ -1,0 +1,22 @@
+{
+  "name": "phool-maya",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Phool Maya — handmade pipe cleaner flower shop with full admin panel & analytics",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "import": "node scripts/import-sqlite.js",
+    "vercel-build": "echo 'no build step'"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@neondatabase/serverless": "^1.1.0",
+    "@vercel/blob": "^2.8.0"
+  }
+}

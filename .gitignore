@@ -1,0 +1,17 @@
+node_modules/
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+.env
+*.bak
+
+# uploaded product photos are data, like the database
+public/uploads/*
+!public/uploads/.gitkeep
+
+data/backups/
+
+data/pg/
+data/*.json
+.vercel
