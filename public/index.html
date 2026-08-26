@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Phool Maya | Handmade Pipe Cleaner Flowers That Never Fade</title>
+<meta name="description" content="Hand-twisted pipe cleaner bouquets that never wilt. Allergy-free, pet-safe, and made to order in small batches.">
+<link rel="icon" href="/img/bouquet.svg?seed=7&palette=rose&count=3&size=64">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500;1,9..144,600&family=Nunito+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/css/site.css">
+</head>
+<body>
+
+<div class="announce" id="announce"></div>
+
+<header>
+  <div class="nav">
+    <a href="/" class="logo" data-link><span class="dot"></span><span id="brandName">Phool Maya</span></a>
+    <nav class="links" id="navLinks">
+      <a href="/" data-link data-route="/">Home</a>
+      <a href="/shop" data-link data-route="/shop">Shop</a>
+      <a href="/shop?category=diy-kits" data-link>DIY Kits</a>
+      <a href="/track" data-link data-route="/track">Track Order</a>
+      <a href="/contact" data-link data-route="/contact">Contact</a>
+    </nav>
+    <div class="nav-right">
+      <button class="icon-btn" id="cartBtn" aria-label="Open basket">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 11 8 4"/><path d="m19 11-3-7"/><path d="M2 11h20"/><path d="m3.6 11 1.5 7.4A2 2 0 0 0 7.06 20h9.88a2 2 0 0 0 1.96-1.6L20.4 11"/><path d="m9 14 .5 3"/><path d="m15 14-.5 3"/></svg>
+        <span class="cart-count" id="cartCount" hidden>0</span>
+      </button>
+      <button class="icon-btn menu-toggle" id="menuToggle" aria-label="Menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor"
+          stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/></svg>
+      </button>
+    </div>
+  </div>
+</header>
+
+<main id="app"></main>
+
+<footer>
+  <div class="footer-grid">
+    <div>
+      <a href="/" class="logo" data-link><span id="footBrand">Phool Maya</span></a>
+      <p id="footAbout"></p>
+      <div class="social-row" id="socialRow"></div>
+    </div>
+    <div>
+      <h4>Shop</h4>
+      <div class="flinks">
+        <a href="/shop" data-link>All Bouquets</a>
+        <a href="/shop?sort=newest" data-link>New Arrivals</a>
+        <a href="/shop?category=diy-kits" data-link>DIY Kits</a>
+        <a href="/shop?category=home-decor" data-link>Home Decor</a>
+      </div>
+    </div>
+    <div>
+      <h4>Support</h4>
+      <div class="flinks">
+        <a href="/contact" data-link>Contact Us</a>
+        <a href="/track" data-link>Track Order</a>
+        <a href="/#faq" data-link>FAQ</a>
+        <a href="/admin">Shop Admin</a>
+      </div>
+    </div>
+    <div>
+      <h4>Get in touch</h4>
+      <div class="contact-line" id="footEmail"></div>
+      <div class="contact-line" id="footAddr"></div>
+      <div class="contact-line" id="footHours"></div>
+    </div>
+  </div>
+  <div class="bottom-row">
+    <span id="footCopy"></span>
+    <span>Visa · Mastercard · Bank transfer · Cash on delivery</span>
+  </div>
+</footer>
+
+<div class="scrim" id="scrim"></div>
+
+<aside class="drawer" id="cartDrawer" aria-label="Basket">
+  <div class="drawer-head">
+    <h3>Your basket</h3>
+    <button class="icon-btn" id="cartClose" aria-label="Close basket">
+      <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor"
+        stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body" id="cartBody"></div>
+  <div class="drawer-foot" id="cartFoot" hidden></div>
+</aside>
+
+<div class="toast" id="toast"></div>
+
+<script type="module" src="/js/site.js"></script>
+</body>
+</html>
