@@ -518,3 +518,19 @@ footer h4 { font-family: 'Fraunces', serif; color: var(--cream); font-size: 16px
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
 
+/* ---------- Icons ---------- */
+.icon { flex: 0 0 auto; vertical-align: middle; }
+.icon-text { font-size: 15px; line-height: 1; }
+.chip-ico .icon { color: var(--mocha); opacity: .85; }
+.why-ico .icon, .t-ico .icon { display: block; }
+.trust .t-ico { display: flex; justify-content: center; color: var(--rose-deep); margin-bottom: 8px; }
+.pill { display: inline-flex; align-items: center; gap: 7px; }
+.pill .icon { color: var(--sage-deep); }
+.empty-state .e-ico { display: flex; justify-content: center; color: var(--mocha-soft); opacity: .55; }
+.contact-line { display: flex; align-items: center; gap: 9px; }
+.contact-line .icon { opacity: .7; }
+.social-row a .icon { display: block; }
+.success-hero .tick .icon { display: block; }
+.icon-btn .icon, .icon-btn svg { color: var(--mocha); }
+.field .icon { color: var(--mocha-soft); }
+
