@@ -488,3 +488,33 @@ textarea { resize: vertical; min-height: 92px; line-height: 1.6; }
 
 .alert.critical { background: var(--critical-bg); color: var(--critical); }
 
+/* ---------- Bulk selection ---------- */
+.pick { display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 4px; }
+.pick input {
+  width: 17px; height: 17px; accent-color: var(--rose); cursor: pointer; margin: 0;
+}
+.pick-col { width: 44px; padding-right: 0 !important; }
+table.data tbody tr.picked { background: var(--rose-soft); }
+table.data tbody tr.picked:hover { background: #F2D9E3; }
+.card.picked { border-color: var(--rose); box-shadow: 0 0 0 1px var(--rose); }
+
+.bulk-bar {
+  position: sticky; top: 12px; z-index: 40;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--ink); color: #FBF3EF;
+  border-radius: 99px; padding: 9px 10px 9px 20px; margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+.bulk-bar strong { font-size: 13.5px; white-space: nowrap; }
+.bulk-actions { display: flex; gap: 7px; flex-wrap: wrap; flex: 1; }
+.bulk-bar .btn-ghost {
+  background: rgba(251, 243, 239, .12); color: #FBF3EF; border-color: transparent;
+}
+.bulk-bar .btn-ghost:hover { background: rgba(251, 243, 239, .22); border-color: transparent; }
+.bulk-bar .btn-danger { background: #C4494E; color: #fff; }
+.bulk-bar .btn-danger:hover { background: #D45A5F; }
+
+@media (max-width: 860px) {
+  .bulk-bar { border-radius: var(--radius); padding: 12px 14px; }
+}
+
