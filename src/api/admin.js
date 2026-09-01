@@ -510,6 +510,161 @@ export function registerAdminRoutes(router) {
     ok(res, { message: 'Photo deleted.' });
   });
 
+  /* ---------------- bulk actions ---------------- */
+
+  /**
+   * One request, one transaction, for an action applied to many rows. Doing this
+   * client-side as N calls would be slower and could half-apply if the
+   * connection dropped part way through.
+   */
+  router.post('/api/admin/bulk', async (req, res) => {
+    const b = await readBody(req);
+    const entity = str(b.entity, 20);
+    const action = str(b.action, 30);
+    const value = str(b.value, 30);
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map((i) => intOr(i, 0)).filter(Boolean);
+
+    if (!ids.length) return fail(res, 400, 'Nothing was selected.');
+    if (ids.length > 500) return fail(res, 400, 'Too many rows at once — select up to 500.');
+
+    // Reject unknown targets before doing any work — otherwise a bad request
+    // still costs a snapshot.
+    const BULK_ENTITIES = new Set(['orders', 'products', 'reviews', 'messages', 'coupons']);
+    if (!BULK_ENTITIES.has(entity)) return fail(res, 400, 'That bulk action is not available.');
+
+    const slots = ids.map(() => '?').join(',');
+
+    // Anything that removes rows gets a snapshot first, so a mis-click is
+    // always recoverable.
+    let snapshot = null;
+    if (action === 'delete') snapshot = await takeSnapshot(`bulk-${entity}-delete`);
+
+    let affected = 0;
+    let message = '';
+
+    try {
+      await transaction(async (tx) => {
+        switch (`${entity}:${action}`) {
+          case 'orders:status': {
+            if (!ORDER_STATUSES.includes(value)) throw new Error('Unknown order status.');
+            for (const o of await tx.all(`SELECT * FROM orders WHERE id IN (${slots})`, ids)) {
+              await applyOrderStatus(tx, o, value, req.admin.name, `Bulk update by ${req.admin.name}`);
+              affected++;
+            }
+            message = `${plural(affected, 'order', 'orders')} marked ${value}.`;
+            break;
+          }
+          case 'orders:payment': {
+            if (!PAYMENT_STATUSES.includes(value)) throw new Error('Unknown payment status.');
+            const r = await tx.run(
+              `UPDATE orders SET payment_status = ?, updated_at = ? WHERE id IN (${slots})`,
+              [value, nowISO(), ...ids]);
+            affected = r.rowCount;
+            message = `${plural(affected, 'order', 'orders')} marked ${value}.`;
+            break;
+          }
+          case 'orders:delete': {
+            for (const o of await tx.all(`SELECT * FROM orders WHERE id IN (${slots})`, ids)) {
+              await restoreStockForDeletedOrder(tx, o);
+              affected++;
+            }
+            await tx.run(`DELETE FROM orders WHERE id IN (${slots})`, ids);
+            message = `${plural(affected, 'order', 'orders')} deleted and their stock returned.`;
+            break;
+          }
+
+          case 'products:visibility': {
+            const active = value === 'show' ? 1 : 0;
+            const r = await tx.run(
+              `UPDATE products SET active = ?, updated_at = ? WHERE id IN (${slots})`,
+              [active, nowISO(), ...ids]);
+            affected = r.rowCount;
+            message = `${plural(affected, 'product', 'products')} ${active ? 'now visible in the shop' : 'hidden from the shop'}.`;
+            break;
+          }
+          case 'products:featured': {
+            const featured = value === 'on' ? 1 : 0;
+            const r = await tx.run(
+              `UPDATE products SET featured = ?, updated_at = ? WHERE id IN (${slots})`,
+              [featured, nowISO(), ...ids]);
+            affected = r.rowCount;
+            message = `${plural(affected, 'product', 'products')} ${featured ? 'featured on the home page' : 'removed from the home page'}.`;
+            break;
+          }
+          case 'products:delete': {
+            // Anything with sales history is hidden instead, so past orders stay readable.
+            let hidden = 0;
+            for (const id of ids) {
+              const used = await tx.get('SELECT COUNT(*)::int AS c FROM order_items WHERE product_id = ?', [id]);
+              if (used.c > 0) {
+                await tx.run('UPDATE products SET active = 0, updated_at = ? WHERE id = ?', [nowISO(), id]);
+                hidden++;
+              } else {
+                affected += (await tx.run('DELETE FROM products WHERE id = ?', [id])).rowCount;
+              }
+            }
+            message = hidden
+              ? `${plural(hidden, 'product is', 'products are')} on past orders, so ${hidden === 1 ? 'it was' : 'they were'} hidden from the shop instead of deleted — that keeps your sales figures correct.${affected ? ` ${plural(affected, 'other was', 'others were')} deleted.` : ''}`
+              : `${plural(affected, 'product', 'products')} deleted.`;
+            break;
+          }
+
+          case 'reviews:status': {
+            if (!['approved', 'rejected', 'pending'].includes(value)) throw new Error('Unknown review status.');
+            affected = (await tx.run(`UPDATE reviews SET status = ? WHERE id IN (${slots})`, [value, ...ids])).rowCount;
+            message = `${plural(affected, 'review', 'reviews')} ${value}.`;
+            break;
+          }
+          case 'reviews:delete': {
+            affected = (await tx.run(`DELETE FROM reviews WHERE id IN (${slots})`, ids)).rowCount;
+            message = `${plural(affected, 'review', 'reviews')} deleted.`;
+            break;
+          }
+
+          case 'messages:status': {
+            if (!['new', 'read', 'replied', 'archived'].includes(value)) throw new Error('Unknown status.');
+            affected = (await tx.run(`UPDATE messages SET status = ? WHERE id IN (${slots})`, [value, ...ids])).rowCount;
+            message = `${plural(affected, 'message', 'messages')} marked ${value}.`;
+            break;
+          }
+          case 'messages:delete': {
+            affected = (await tx.run(`DELETE FROM messages WHERE id IN (${slots})`, ids)).rowCount;
+            message = `${plural(affected, 'message', 'messages')} deleted.`;
+            break;
+          }
+
+          case 'coupons:active': {
+            const active = value === 'on' ? 1 : 0;
+            affected = (await tx.run(`UPDATE coupons SET active = ? WHERE id IN (${slots})`, [active, ...ids])).rowCount;
+            message = `${plural(affected, 'code', 'codes')} ${active ? 'switched on' : 'switched off'}.`;
+            break;
+          }
+          case 'coupons:delete': {
+            affected = (await tx.run(`DELETE FROM coupons WHERE id IN (${slots})`, ids)).rowCount;
+            message = `${plural(affected, 'code', 'codes')} deleted.`;
+            break;
+          }
+
+          default:
+            throw new Error('That bulk action is not available.');
+        }
+      });
+    } catch (err) {
+      return fail(res, 400, err.message || 'Bulk action failed — nothing was changed.');
+    }
+
+    await logActivity(req.admin, `bulk_${entity}_${action}`, `${ids.length} selected · ${value || '—'}`);
+    ok(res, { affected, message, snapshot: snapshot?.id ?? null });
+  });
+
+  router.post('/api/admin/customers/emails', async (req, res) => {
+    const b = await readBody(req);
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map((i) => intOr(i, 0)).filter(Boolean);
+    if (!ids.length) return fail(res, 400, 'Nothing was selected.');
+    const rows = await all(`SELECT email FROM customers WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+    ok(res, { emails: rows.map((r) => r.email) });
+  });
+
   /* ---------------- categories ---------------- */
 
   router.get('/api/admin/categories', async (req, res) => {
