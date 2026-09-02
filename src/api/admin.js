@@ -964,6 +964,30 @@ export function registerAdminRoutes(router) {
     ok(res, { message: 'Shop settings saved.', settings: await getSettings() });
   });
 
+  /* ---------------- snapshots ---------------- */
+
+  router.get('/api/admin/backups', async (req, res) => {
+    ok(res, { backups: await listSnapshots() });
+  });
+
+  router.post('/api/admin/backups', async (req, res) => {
+    const snap = await takeSnapshot('manual');
+    if (!snap) return fail(res, 500, 'Could not write a snapshot.');
+    await logActivity(req.admin, 'backup_create', String(snap.id));
+    ok(res, { message: `Snapshot saved (${Math.round(snap.bytes / 1024)} KB).`, ...snap });
+  });
+
+  router.get('/api/admin/backups/:id', async (req, res, { params }) => {
+    const snap = await readSnapshot(intOr(params.id));
+    if (!snap) return fail(res, 404, 'That snapshot no longer exists.');
+    res.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': `attachment; filename="phool-maya-${snap.created_at.slice(0, 19).replace(/[:]/g, '-')}.json"`,
+      'Content-Length': Buffer.byteLength(snap.json)
+    });
+    res.end(snap.json);
+  });
+
   /* ---------------- exports ---------------- */
 
   router.get('/api/admin/export/:what', async (req, res, { params }) => {
