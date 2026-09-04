@@ -197,6 +197,15 @@ CREATE TABLE IF NOT EXISTS activity_log (
   created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS hero_slides (
+  id         SERIAL PRIMARY KEY,
+  image_url  TEXT NOT NULL,
+  caption    TEXT DEFAULT '',
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  active     INTEGER NOT NULL DEFAULT 1,
+  created_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS snapshots (
   id         SERIAL PRIMARY KEY,
   reason     TEXT NOT NULL,
@@ -231,6 +240,7 @@ export const DEFAULT_SETTINGS = {
   payment_methods: 'cod,bank,card',
   hero_title: 'Flowers that stay as long as the feeling does.',
   hero_body: 'Hand-twisted pipe cleaner bouquets — no water, no wilting, no pollen. Just soft, fuzzy colour that sits on the shelf for years.',
+  hero_interval: '10',
   about: 'Handmade pipe cleaner flowers, twisted with patience in small batches. Designed in Denmark, gifted everywhere.'
 };
 
