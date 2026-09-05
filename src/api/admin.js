@@ -918,6 +918,72 @@ export function registerAdminRoutes(router) {
     ok(res, { message: 'Message deleted.' });
   });
 
+  /* ---------------- home page slideshow ---------------- */
+
+  router.get('/api/admin/hero-slides', async (req, res) => {
+    const settings = await getSettings();
+    ok(res, {
+      slides: await all('SELECT * FROM hero_slides ORDER BY sort_order, id'),
+      interval: Number(settings.hero_interval) || 10
+    });
+  });
+
+  router.post('/api/admin/hero-slides', async (req, res) => {
+    const b = await readBody(req);
+    const url = str(b.image_url, 500);
+    if (!url) return fail(res, 400, 'Upload a photo first.');
+
+    // New slides go on the end.
+    const last = await get('SELECT COALESCE(MAX(sort_order), -1)::int AS n FROM hero_slides');
+    await run(
+      'INSERT INTO hero_slides(image_url, caption, sort_order, active, created_at) VALUES(?,?,?,1,?)',
+      [url, str(b.caption, 160), last.n + 1, nowISO()]
+    );
+    await logActivity(req.admin, 'hero_slide_add', url.slice(-30));
+    ok(res, { message: 'Photo added to the slideshow.' });
+  });
+
+  router.put('/api/admin/hero-slides/:id', async (req, res, { params }) => {
+    const slide = await get('SELECT * FROM hero_slides WHERE id = ?', [intOr(params.id)]);
+    if (!slide) return fail(res, 404, 'Slide not found');
+    const b = await readBody(req);
+    await run('UPDATE hero_slides SET caption = ?, active = ? WHERE id = ?',
+      [str(b.caption, 160), bool01(b.active), slide.id]);
+    ok(res, { message: 'Slide saved.' });
+  });
+
+  /** Accepts the ids in their new order. */
+  router.post('/api/admin/hero-slides/reorder', async (req, res) => {
+    const b = await readBody(req);
+    const ids = (Array.isArray(b.ids) ? b.ids : []).map((i) => intOr(i, 0)).filter(Boolean);
+    if (!ids.length) return fail(res, 400, 'No order was given.');
+    await transaction(async (tx) => {
+      for (const [i, id] of ids.entries()) {
+        await tx.run('UPDATE hero_slides SET sort_order = ? WHERE id = ?', [i, id]);
+      }
+    });
+    ok(res, { message: 'Order saved.' });
+  });
+
+  router.delete('/api/admin/hero-slides/:id', async (req, res, { params }) => {
+    const slide = await get('SELECT * FROM hero_slides WHERE id = ?', [intOr(params.id)]);
+    if (!slide) return fail(res, 404, 'Slide not found');
+    await run('DELETE FROM hero_slides WHERE id = ?', [slide.id]);
+
+    // Drop the file too, unless a product is also using it.
+    if (isOwnUpload(slide.image_url)) {
+      const used = await get(
+        `SELECT (SELECT COUNT(*)::int FROM products WHERE image_url = ?)
+              + (SELECT COUNT(*)::int FROM hero_slides WHERE image_url = ?) AS c`,
+        [slide.image_url, slide.image_url]
+      );
+      if (used.c === 0) await deleteUpload(slide.image_url);
+    }
+
+    await logActivity(req.admin, 'hero_slide_delete', slide.image_url.slice(-30));
+    ok(res, { message: 'Photo removed from the slideshow.' });
+  });
+
   /* ---------------- FAQs ---------------- */
 
   router.get('/api/admin/faqs', async (req, res) => {
