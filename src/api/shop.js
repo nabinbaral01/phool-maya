@@ -109,7 +109,7 @@ export function registerShopRoutes(router) {
   /* --- bootstrap: everything the storefront needs in one round trip --- */
   router.get('/api/shop/bootstrap', async (req, res) => {
     const s = await getSettings();
-    const [categories, faqs, testimonials, productCount, soldCount, avgRating] = await Promise.all([
+    const [categories, faqs, testimonials, productCount, soldCount, avgRating, heroSlides] = await Promise.all([
       all('SELECT id, name, slug, icon, color FROM categories WHERE active = 1 ORDER BY sort_order, name'),
       all('SELECT question, answer FROM faqs WHERE active = 1 ORDER BY sort_order, id'),
       all(`SELECT r.name, r.location, r.rating, r.body, p.name AS product
@@ -117,7 +117,8 @@ export function registerShopRoutes(router) {
            WHERE r.status = 'approved' ORDER BY r.created_at DESC LIMIT 9`),
       get('SELECT COUNT(*)::int AS c FROM products WHERE active = 1'),
       get('SELECT COALESCE(SUM(sold),0)::int AS c FROM products'),
-      get(`SELECT ROUND(AVG(rating)::numeric,1)::float8 AS a FROM reviews WHERE status='approved'`)
+      get(`SELECT ROUND(AVG(rating)::numeric,1)::float8 AS a FROM reviews WHERE status='approved'`),
+      all('SELECT image_url, caption FROM hero_slides WHERE active = 1 ORDER BY sort_order, id')
     ]);
 
     ok(res, {
@@ -127,8 +128,10 @@ export function registerShopRoutes(router) {
         hours: s.hours, about: s.about, hero_title: s.hero_title, hero_body: s.hero_body,
         instagram: s.instagram, facebook: s.facebook, tiktok: s.tiktok, pinterest: s.pinterest,
         shipping_flat: Number(s.shipping_flat), free_shipping_over: Number(s.free_shipping_over),
-        payment_methods: String(s.payment_methods).split(',').filter(Boolean)
+        payment_methods: String(s.payment_methods).split(',').filter(Boolean),
+        hero_interval: Math.min(120, Math.max(2, Number(s.hero_interval) || 10))
       },
+      hero_slides: heroSlides,
       categories,
       faqs,
       testimonials,
