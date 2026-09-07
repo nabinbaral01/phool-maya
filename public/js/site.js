@@ -228,7 +228,24 @@ async function pageHome() {
       </div>
       <div class="hero-art">
         <div class="hero-blob"></div>
-        <svg viewBox="0 0 400 400" aria-hidden="true">${heroArt}</svg>
+        ${state.hero_slides?.length ? `
+          <div class="hero-slider" id="heroSlider" tabindex="0"
+               aria-roledescription="carousel" aria-label="Bouquet photos">
+            ${state.hero_slides.map((sl, i) => `
+              <figure class="hero-slide ${i === 0 ? 'on' : ''}" data-slide="${i}"
+                      aria-hidden="${i === 0 ? 'false' : 'true'}">
+                <img src="${esc(sl.image_url)}" alt="${esc(sl.caption || 'Handmade bouquet')}"
+                     ${i === 0 ? '' : 'loading="lazy"'}>
+                ${sl.caption ? `<figcaption>${esc(sl.caption)}</figcaption>` : ''}
+              </figure>`).join('')}
+            ${state.hero_slides.length > 1 ? `
+              <div class="hero-dots" role="tablist" aria-label="Choose a photo">
+                ${state.hero_slides.map((_, i) => `
+                  <button role="tab" data-dot="${i}" class="${i === 0 ? 'on' : ''}"
+                          aria-selected="${i === 0}" aria-label="Photo ${i + 1}"></button>`).join('')}
+              </div>` : ''}
+          </div>`
+        : `<svg viewBox="0 0 400 400" aria-hidden="true">${heroArt}</svg>`}
       </div>
     </section>
 
@@ -354,6 +371,7 @@ async function pageHome() {
       </div>
     </section>`;
 
+  mountHeroSlider();
   wireFAQ();
   wireNewsletter();
 
@@ -367,6 +385,77 @@ async function pageHome() {
     ? `<div class="grid">${list.map(productCard).join('')}</div>`
     : `<div class="empty-state"><div class="e-ico">${icon('flower', { size: 42, stroke: 1.4 })}</div>
        <p>No bouquets yet — add your first one in the admin panel.</p></div>`;
+}
+
+/* ------------------------------------------------------------------ */
+/* Hero slideshow                                                      */
+/* ------------------------------------------------------------------ */
+
+/** Cleared when the home page is torn down, so no timer outlives its markup. */
+let heroStop = null;
+
+/**
+ * Crossfade the hero photos on a timer the shop owner sets in the admin panel.
+ *
+ * Only one photo is ever "on"; the rest sit underneath at opacity 0, so the
+ * transition costs nothing but a compositor pass and there is no layout shift.
+ */
+function mountHeroSlider() {
+  const root = $('#heroSlider');
+  if (!root) return;
+
+  const slides = $$('.hero-slide', root);
+  const dots = $$('[data-dot]', root);
+  if (slides.length < 2) return; // a single photo needs no timer
+
+  const seconds = Math.min(120, Math.max(2, Number(state.settings.hero_interval) || 10));
+  const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let index = 0;
+  let timer = null;
+
+  const show = (next) => {
+    index = (next + slides.length) % slides.length;
+    slides.forEach((s, i) => {
+      s.classList.toggle('on', i === index);
+      s.setAttribute('aria-hidden', i === index ? 'false' : 'true');
+    });
+    dots.forEach((d, i) => {
+      d.classList.toggle('on', i === index);
+      d.setAttribute('aria-selected', String(i === index));
+    });
+  };
+
+  const start = () => {
+    if (reduced) return;
+    stop();
+    timer = setInterval(() => show(index + 1), seconds * 1000);
+  };
+  const stop = () => { if (timer) clearInterval(timer); timer = null; };
+
+  // Restart the clock after a manual change, so the reader gets a full interval
+  // to look at the photo they just chose.
+  const goto = (i) => { show(i); start(); };
+
+  dots.forEach((d, i) => d.addEventListener('click', () => goto(i)));
+
+  root.addEventListener('pointerenter', stop);
+  root.addEventListener('pointerleave', start);
+  root.addEventListener('focusin', stop);
+  root.addEventListener('focusout', start);
+  root.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight') { e.preventDefault(); goto(index + 1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); goto(index - 1); }
+  });
+
+  // Pause while the tab is hidden — a background timer just burns battery.
+  const onVisibility = () => (document.hidden ? stop() : start());
+  document.addEventListener('visibilitychange', onVisibility);
+
+  start();
+  heroStop = () => {
+    stop();
+    document.removeEventListener('visibilitychange', onVisibility);
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1174,8 +1263,10 @@ async function render() {
   const params = new URLSearchParams(location.search);
   closeCart();
   closeQuickView();
-  // The gallery's animation frame belongs to the page that created it.
+  // The gallery's animation frame and the hero timer belong to the page that
+  // created them.
   if (galleryStop) { galleryStop(); galleryStop = null; }
+  if (heroStop) { heroStop(); heroStop = null; }
   $('#navLinks').classList.remove('open');
   window.scrollTo({ top: 0, behavior: 'instant' });
 
