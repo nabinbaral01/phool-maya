@@ -1678,17 +1678,68 @@ async function viewMessages() {
 
 async function viewContent() {
   $('#view').innerHTML = pageHead('Shop content',
-    'Categories and the questions shown on the home page.') +
+    'The home page slideshow, your categories, and the questions shown on the shop.') +
     `<div id="contentBody"><p class="chart-empty">Loading…</p></div>`;
   wireHead();
 
   const load = async () => {
-    const [cats, faqs] = await Promise.all([
+    const [cats, faqs, hero] = await Promise.all([
       api('/api/admin/categories'),
-      api('/api/admin/faqs')
+      api('/api/admin/faqs'),
+      api('/api/admin/hero-slides')
     ]);
 
     $('#contentBody').innerHTML = `
+      <div class="card" style="margin-bottom:18px">
+        <div class="card-head">
+          <div><h3>Home page slideshow</h3>
+            <div class="cap">The big photos at the top of your shop. Drag is not needed —
+              use the arrows to reorder.</div></div>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            <label class="check" style="gap:7px">
+              Change every
+              <input type="number" id="heroInterval" min="2" max="120" value="${hero.interval}"
+                     style="width:74px;padding:7px 10px;text-align:center">
+              seconds
+            </label>
+            <button class="btn btn-ghost btn-sm" id="saveInterval">Save</button>
+            <button class="btn btn-primary btn-sm" id="addSlide">
+              ${icon('camera', { size: 14 })} Add photo</button>
+            <input type="file" id="slideFile" accept="image/jpeg,image/png,image/webp,image/gif,image/avif" hidden>
+          </div>
+        </div>
+        <div class="card-body">
+          ${hero.slides.length ? `
+            <div class="slide-grid">
+              ${hero.slides.map((sl, i) => `
+                <div class="slide-card ${sl.active ? '' : 'off'}">
+                  <div class="slide-art"><img src="${esc(sl.image_url)}" alt=""></div>
+                  <div class="slide-tools">
+                    <button class="btn btn-ghost btn-sm" data-move="${sl.id}" data-dir="-1"
+                            ${i === 0 ? 'disabled' : ''} aria-label="Move earlier">←</button>
+                    <button class="btn btn-ghost btn-sm" data-move="${sl.id}" data-dir="1"
+                            ${i === hero.slides.length - 1 ? 'disabled' : ''} aria-label="Move later">→</button>
+                    <span style="flex:1"></span>
+                    <button class="btn btn-ghost btn-sm" data-toggle="${sl.id}"
+                            data-active="${sl.active ? 0 : 1}">${sl.active ? 'Hide' : 'Show'}</button>
+                    <button class="btn btn-danger btn-sm" data-delslide="${sl.id}"
+                            aria-label="Remove">${icon('trash', { size: 13 })}</button>
+                  </div>
+                  <input type="text" class="slide-caption" data-caption="${sl.id}"
+                         value="${esc(sl.caption || '')}" placeholder="Caption (optional)" maxlength="160">
+                </div>`).join('')}
+            </div>
+            <p class="help" style="margin-top:14px">
+              Photos fade from one to the next every ${hero.interval} seconds. Hidden photos stay
+              here but are skipped on the shop.</p>`
+            : `<div class="empty" style="padding:32px 20px">
+                 ${icon('camera', { size: 34, stroke: 1.5 })}
+                 <p style="margin-top:10px">No slideshow photos yet — the shop shows a drawn
+                 bouquet instead. Add a photo to replace it.</p>
+               </div>`}
+        </div>
+      </div>
+
       <div class="grid-wide">
         <div class="card">
           <div class="card-head">
@@ -1730,6 +1781,92 @@ async function viewContent() {
           </div>
         </div>
       </div>`;
+
+    /* --- slideshow --- */
+    $('#addSlide').onclick = () => $('#slideFile').click();
+
+    $('#slideFile').addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > 6_000_000) return toast('That image is larger than 6 MB.', 'error');
+      const btn = $('#addSlide');
+      btn.disabled = true;
+      btn.textContent = 'Uploading…';
+      try {
+        const res = await fetch('/api/admin/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file
+        });
+        const up = await res.json();
+        if (!res.ok) throw new Error(up.error || 'Upload failed');
+        const r = await api('/api/admin/hero-slides', {
+          method: 'POST', body: JSON.stringify({ image_url: up.url })
+        });
+        toast(r.message);
+        load();
+      } catch (err) {
+        toast(err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Add photo';
+      }
+    });
+
+    $('#saveInterval').onclick = async () => {
+      const seconds = Math.min(120, Math.max(2, Number($('#heroInterval').value) || 10));
+      $('#heroInterval').value = seconds;
+      try {
+        await api('/api/admin/settings', {
+          method: 'PUT', body: JSON.stringify({ hero_interval: String(seconds) })
+        });
+        app.settings.hero_interval = String(seconds);
+        toast(`Photos will change every ${seconds} seconds.`);
+        load();
+      } catch (err) { toast(err.message, 'error'); }
+    };
+
+    // Reordering sends the whole new order, so the server never has to guess.
+    $$('[data-move]').forEach((b) => b.onclick = async () => {
+      const ids = hero.slides.map((s) => s.id);
+      const from = ids.indexOf(Number(b.dataset.move));
+      const to = from + Number(b.dataset.dir);
+      if (to < 0 || to >= ids.length) return;
+      [ids[from], ids[to]] = [ids[to], ids[from]];
+      try {
+        await api('/api/admin/hero-slides/reorder', { method: 'POST', body: JSON.stringify({ ids }) });
+        load();
+      } catch (err) { toast(err.message, 'error'); }
+    });
+
+    $$('[data-toggle]').forEach((b) => b.onclick = async () => {
+      const slide = hero.slides.find((s) => s.id === Number(b.dataset.toggle));
+      await api('/api/admin/hero-slides/' + b.dataset.toggle, {
+        method: 'PUT',
+        body: JSON.stringify({ active: Number(b.dataset.active), caption: slide?.caption || '' })
+      });
+      load();
+    });
+
+    $$('[data-delslide]').forEach((b) => b.onclick = async () => {
+      if (!await confirmAction('Remove this photo?',
+        'It disappears from the slideshow. The file itself is deleted unless a product is also using it.',
+        'Remove')) return;
+      const r = await api('/api/admin/hero-slides/' + b.dataset.delslide, { method: 'DELETE' });
+      toast(r.message);
+      load();
+    });
+
+    // Captions save when you click away, so there is no extra button to hunt for.
+    $$('[data-caption]').forEach((input) => input.addEventListener('change', async () => {
+      const slide = hero.slides.find((s) => s.id === Number(input.dataset.caption));
+      try {
+        await api('/api/admin/hero-slides/' + input.dataset.caption, {
+          method: 'PUT',
+          body: JSON.stringify({ caption: input.value, active: slide?.active ?? 1 })
+        });
+        toast('Caption saved.');
+      } catch (err) { toast(err.message, 'error'); }
+    }));
 
     $('#newFaq').onclick = () => editFaq(null, load);
     $$('[data-faq]').forEach((b) => b.onclick = () =>
