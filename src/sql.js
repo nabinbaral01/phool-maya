@@ -68,7 +68,20 @@ async function getDriver() {
       }
     };
   } else {
-    const { PGlite } = await import('@electric-sql/pglite');
+    // PGlite is a 25 MB WebAssembly build of Postgres and is only ever used
+    // for local development, so it lives in devDependencies and is not
+    // installed in production. Importing it through a variable also keeps the
+    // serverless bundler from tracing it into the deployed function.
+    const local = '@electric-sql/pglite';
+    let PGlite;
+    try {
+      ({ PGlite } = await import(local));
+    } catch {
+      throw new Error(
+        'No DATABASE_URL is set and the local database is not installed. ' +
+        'Set DATABASE_URL to your Postgres connection string.'
+      );
+    }
     // Configurable so a throwaway instance can run alongside the real one.
     const pg = await PGlite.create(process.env.PGLITE_DIR || join(ROOT, 'data', 'pg'));
     driver = {
