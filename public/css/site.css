@@ -893,3 +893,19 @@ footer::before {
 
   footer { margin-top: 72px; padding: 44px 20px 22px; }
 }
+
+@media (max-width: 720px) {
+  /* The header's backdrop-filter makes it the containing block for this fixed
+     menu, so -110% left its bottom edge peeking over the announcement bar.
+     Hide it outright when closed (after the slide-out finishes). */
+  nav.links { transition: transform .3s ease, visibility 0s linear .3s; }
+  nav.links:not(.open) { visibility: hidden; }
+  nav.links.open { visibility: visible; transition: transform .3s ease, visibility 0s; }
+
+  /* "Why us" boxes: less padding, tighter gaps */
+  .why { gap: 12px; }
+  .why-item { padding: 20px 18px; display: grid; grid-template-columns: 44px 1fr; column-gap: 14px; align-items: start; }
+  .why-ico { width: 44px; height: 44px; margin-bottom: 0; grid-row: span 2; }
+  .why-item h3 { font-size: 17px; margin-bottom: 4px; }
+  .why-item p { font-size: 13.5px; line-height: 1.55; }
+}
