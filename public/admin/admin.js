@@ -439,7 +439,7 @@ async function viewDashboard() {
     <div class="grid-wide" style="margin-bottom:18px">
       <div class="card card-pad">
         <div class="s-label" style="font-size:12.5px;color:var(--ink-2);font-weight:700">
-          Revenue · last ${esc(rangeLabel)}</div>
+          Paid revenue · last ${esc(rangeLabel)}</div>
         <div class="hero-figure">${money(k.revenue)}</div>
         <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:8px">
           ${delta(k.revenue_change)}
@@ -464,8 +464,8 @@ async function viewDashboard() {
     </div>
 
     <div class="stat-row">
-      ${statTile('Orders', compact(k.orders), delta(k.orders_change), a.daily.map((d) => d.orders))}
-      ${statTile('Average order', money(k.aov), delta(k.aov_change), null)}
+      ${statTile('Paid orders', compact(k.orders), delta(k.orders_change), a.daily.map((d) => d.orders))}
+      ${statTile('Average paid order', money(k.aov), delta(k.aov_change), null)}
       ${statTile('Visitors', compact(k.visitors), `<span class="delta flat">${k.conversion}% ordered</span>`, a.traffic.map((d) => d.visitors))}
       ${statTile('Stock on hand', money(k.inventory_value), `<span class="delta flat">${k.inventory_units} items</span>`, null)}
       ${statTile('Customers', compact(k.total_customers), `<span class="delta flat">${k.new_customers} new · ${k.repeat_customers} repeat</span>`, null)}
@@ -477,14 +477,14 @@ async function viewDashboard() {
       <div class="card">
         <div class="card-head">
           <div><h3>Revenue</h3>
-            <div class="cap">Daily takings across the last ${esc(rangeLabel)}.</div></div>
+            <div class="cap">Paid takings each day across the last ${esc(rangeLabel)}.</div></div>
         </div>
         <div class="card-body"><div id="chartRevenue"></div></div>
       </div>
       <div class="card">
         <div class="card-head">
           <div><h3>Profit</h3>
-            <div class="cap">Takings minus what the bouquets cost to make.</div></div>
+            <div class="cap">Paid takings minus what the bouquets cost to make.</div></div>
         </div>
         <div class="card-body"><div id="chartProfit"></div></div>
       </div>

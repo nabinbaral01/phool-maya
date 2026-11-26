@@ -73,6 +73,8 @@ function dayKeys(days) {
 }
 
 const REVENUE_STATUSES = `('pending','confirmed','packing','shipped','delivered')`;
+/** A sale that counts as money in: a live order that has actually been paid. */
+const PAID_SALE = (t = "") => `${t}status IN ${REVENUE_STATUSES} AND ${t}payment_status = 'paid'`;
 const ORDER_STATUSES = ['pending', 'confirmed', 'packing', 'shipped', 'delivered', 'cancelled', 'refunded'];
 const PAYMENT_STATUSES = ['unpaid', 'paid', 'refunded'];
 const DEAD = (s) => s === 'cancelled' || s === 'refunded';
@@ -134,7 +136,7 @@ export async function buildAnalytics(days = 30) {
     `SELECT COALESCE(SUM(total),0)::float8 AS revenue, COALESCE(SUM(cost_total),0)::float8 AS cost,
             COUNT(*)::int AS orders, COALESCE(SUM(discount),0)::float8 AS discount
      FROM orders WHERE created_at >= ? ${until ? 'AND created_at < ?' : ''}
-       AND status IN ${REVENUE_STATUSES}`,
+       AND ${PAID_SALE()}`,
     until ? [since, until] : [since]
   );
 
@@ -142,10 +144,10 @@ export async function buildAnalytics(days = 30) {
     agg(from, null),
     agg(prevFrom, from),
     get(`SELECT COALESCE(SUM(i.qty),0)::int AS n FROM order_items i JOIN orders o ON o.id = i.order_id
-         WHERE o.created_at >= ? AND o.status IN ${REVENUE_STATUSES}`, [from]),
+         WHERE o.created_at >= ? AND ${PAID_SALE("o.")}`, [from]),
     all(`SELECT substr(created_at,1,10) AS d, SUM(total)::float8 AS revenue,
                 SUM(cost_total)::float8 AS cost, COUNT(*)::int AS orders
-         FROM orders WHERE created_at >= ? AND status IN ${REVENUE_STATUSES} GROUP BY d`, [from]),
+         FROM orders WHERE created_at >= ? AND ${PAID_SALE()} GROUP BY d`, [from]),
     all(`SELECT substr(created_at,1,10) AS d, COUNT(*)::int AS views,
                 COUNT(DISTINCT visitor_key)::int AS visitors
          FROM events WHERE created_at >= ? AND type = 'pageview' GROUP BY d`, [from])
@@ -190,12 +192,12 @@ export async function buildAnalytics(days = 30) {
     lowStock, inventoryValue, belowCost] = await Promise.all([
     all('SELECT status, COUNT(*)::int AS n, COALESCE(SUM(total),0)::float8 AS revenue FROM orders WHERE created_at >= ? GROUP BY status', [from]),
     all(`SELECT payment_method, COUNT(*)::int AS n, COALESCE(SUM(total),0)::float8 AS revenue FROM orders
-         WHERE created_at >= ? AND status IN ${REVENUE_STATUSES} GROUP BY payment_method`, [from]),
+         WHERE created_at >= ? AND ${PAID_SALE()} GROUP BY payment_method`, [from]),
     all(`SELECT i.name, SUM(i.qty)::int AS units,
                 ROUND(SUM(i.line_total)::numeric,2)::float8 AS revenue,
                 ROUND(SUM(i.line_total - i.unit_cost * i.qty)::numeric,2)::float8 AS profit
          FROM order_items i JOIN orders o ON o.id = i.order_id
-         WHERE o.created_at >= ? AND o.status IN ${REVENUE_STATUSES}
+         WHERE o.created_at >= ? AND ${PAID_SALE("o.")}
          GROUP BY i.name ORDER BY revenue DESC LIMIT 8`, [from]),
     all(`SELECT COALESCE(c.name,'Uncategorised') AS name, SUM(i.qty)::int AS units,
                 ROUND(SUM(i.line_total)::numeric,2)::float8 AS revenue
@@ -203,12 +205,12 @@ export async function buildAnalytics(days = 30) {
          JOIN orders o ON o.id = i.order_id
          LEFT JOIN products p ON p.id = i.product_id
          LEFT JOIN categories c ON c.id = p.category_id
-         WHERE o.created_at >= ? AND o.status IN ${REVENUE_STATUSES}
+         WHERE o.created_at >= ? AND ${PAID_SALE("o.")}
          GROUP BY c.name ORDER BY revenue DESC`, [from]),
     all(`SELECT EXTRACT(DOW FROM created_at::timestamptz)::int AS dow,
                 EXTRACT(HOUR FROM created_at::timestamptz)::int AS hour,
                 COUNT(*)::int AS n
-         FROM orders WHERE created_at >= ? AND status IN ${REVENUE_STATUSES}
+         FROM orders WHERE created_at >= ? AND ${PAID_SALE()}
          GROUP BY dow, hour`, [daysAgoISO(Math.max(days, 90))]),
     get('SELECT COUNT(*)::int AS n FROM customers WHERE created_at >= ?', [from]),
     get(`SELECT COUNT(*)::int AS n FROM (
@@ -218,7 +220,7 @@ export async function buildAnalytics(days = 30) {
     all(`SELECT c.name, c.email, COUNT(o.id)::int AS orders,
                 ROUND(SUM(o.total)::numeric,2)::float8 AS spent
          FROM orders o JOIN customers c ON c.id = o.customer_id
-         WHERE o.status IN ${REVENUE_STATUSES}
+         WHERE ${PAID_SALE("o.")}
          GROUP BY c.id, c.name, c.email ORDER BY spent DESC LIMIT 6`),
     all('SELECT id, name, stock, price FROM products WHERE active = 1 AND stock <= ? ORDER BY stock ASC LIMIT 10', [threshold]),
     get('SELECT ROUND(COALESCE(SUM(stock * price),0)::numeric,2)::float8 AS v, COALESCE(SUM(stock),0)::int AS units FROM products WHERE active = 1'),
@@ -825,7 +827,7 @@ export function registerAdminRoutes(router) {
         `SELECT c.*,
           (SELECT COUNT(*)::int FROM orders o WHERE o.customer_id = c.id) AS orders,
           (SELECT ROUND(COALESCE(SUM(o.total),0)::numeric,2)::float8 FROM orders o
-             WHERE o.customer_id = c.id AND o.status IN ${REVENUE_STATUSES}) AS spent,
+             WHERE o.customer_id = c.id AND ${PAID_SALE("o.")}) AS spent,
           (SELECT MAX(o.created_at) FROM orders o WHERE o.customer_id = c.id) AS last_order
          FROM customers c ${clause} ORDER BY spent DESC NULLS LAST, c.id DESC LIMIT 300`, args)
     });
