@@ -918,3 +918,14 @@ footer::before {
 
 /* The ring already frames the photo; the soft blob behind it read as a second, offset halo */
 .hero-art:has(.hero-slider) .hero-blob { display: none; }
+
+/* Tighter rhythm between hero, occasion chips and the first section */
+.hero { padding-bottom: 8px; }
+.occasions { padding: 12px 24px 8px; }
+.chip-scroll { padding-top: 6px; padding-bottom: 12px; } /* room for the chip shadow, no more */
+.occasions + .gallery-section { padding-top: 24px; }
+#shop { padding-top: 32px; }
+@media (max-width: 720px) {
+  .occasions { padding: 10px 0 4px; }
+  #shop { padding-top: 20px; }
+}
