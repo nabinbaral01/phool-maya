@@ -839,3 +839,57 @@ footer::before {
 .hero-slider, .card-media { touch-action: pan-y; }
 /* Phones: dots always visible so it is clear a card has more photos */
 @media (hover: none) { .cm-dots { opacity: 1; } }
+
+/* ==========================================================================
+   Mobile cleanup
+   ========================================================================== */
+
+/* Off-screen panels must not cast a shadow onto the page edge */
+.drawer:not(.open) { box-shadow: none; }
+
+@media (max-width: 900px) {
+  /* The photo column had no width of its own, so the circle collapsed */
+  .hero-art { width: 100%; }
+  .hero-slider { width: calc(100% - 2 * clamp(14px, 2.6vw, 30px)); }
+}
+
+@media (max-width: 720px) {
+  nav.links:not(.open) { box-shadow: none; }
+
+  .announce { font-size: 12px; padding: 7px 14px; line-height: 1.45; }
+
+  /* Hero: photo, then a compact text block */
+  .hero { padding: 22px 16px 8px; gap: 26px; }
+  .hero-art { max-width: 300px; }
+  .eyebrow { font-size: 11px; padding: 6px 12px; margin-bottom: 14px; }
+  .hero h1 { font-size: clamp(28px, 8.4vw, 38px); margin-bottom: 22px; }
+  .hero .btn-row { gap: 10px; margin-bottom: 0; flex-wrap: nowrap; }
+  .hero .btn-row .btn { flex: 1; justify-content: center; text-align: center; padding: 13px 14px; font-size: 14px; }
+
+  /* Occasion chips: smaller, edge-to-edge scroll */
+  .occasions { padding: 18px 0 8px; }
+  .chip-scroll { padding: 4px 16px 10px; gap: 8px; scroll-padding-left: 16px; }
+  .chip { padding: 7px 14px 7px 8px; font-size: 13px; gap: 8px; }
+  .chip-ico { width: 26px; height: 26px; }
+
+  /* Section title and "see all" on one line */
+  .section-head { flex-wrap: nowrap; align-items: center; margin-bottom: 16px; gap: 12px; }
+  .section-head h2 { font-size: 23px; }
+  .section-head p { font-size: 14px; }
+  .see-all { font-size: 13px; }
+
+  /* Products: two per row */
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+  .card { border-radius: 16px; }
+  .card-body { padding: 10px 12px 14px; gap: 3px; }
+  .card-body .name { font-size: 15px; line-height: 1.25; }
+  .meta-row { font-size: 11.5px; }
+  .price-row { gap: 6px; flex-wrap: wrap; padding-top: 4px; }
+  .price { font-size: 15px; }
+  .price-old { font-size: 12px; }
+  .badge { top: 8px; left: 8px; font-size: 9.5px; padding: 4px 8px; }
+  .quick-add { left: 8px; right: 8px; bottom: 8px; padding: 8px; font-size: 12px; }
+  .cm-dots { top: 10px; right: 10px; }
+
+  footer { margin-top: 72px; padding: 44px 20px 22px; }
+}
