@@ -1,5 +1,5 @@
 /**
- * Phool Maya — admin panel.
+ * Maya Flora — admin panel.
  *
  * Hash-routed views over the /api/admin endpoints. The session lives in an
  * HttpOnly cookie, so there is no token handling here: a 401 simply drops the
@@ -71,9 +71,6 @@ function delta(value, label = 'vs prev.') {
 // Always draw the bouquet on a 240pt canvas and let the viewBox scale it down —
 // drawing directly at 40px turns the petals into an unreadable blob.
 const ART = 240;
-const fileSize = (bytes) => bytes >= 1_000_000
-  ? `${(bytes / 1_048_576).toFixed(1)} MB`
-  : bytes >= 1024 ? `${Math.round(bytes / 1024)} KB` : `${bytes} bytes`;
 
 const productArt = (p) => p.image_url
   ? `<img src="${esc(p.image_url)}" alt="" style="width:100%;height:100%;object-fit:cover">`
@@ -273,11 +270,6 @@ function renderLogin(message = '') {
         </div>
         <div id="loginError" style="color:var(--critical);font-weight:700;font-size:13px;min-height:20px">${esc(message)}</div>
         <button class="btn btn-primary" style="width:100%;margin-top:8px" type="submit" id="loginBtn">Sign in</button>
-        <div class="hint">
-          <strong>First time here?</strong> Sign in with the address set as
-          <code>ADMIN_EMAIL</code>, or <code>admin@phoolmaya.com</code> / <code>admin1234</code>
-          if none was set. Change the password in Settings straight afterwards.
-        </div>
       </form>
     </div>`;
 
@@ -410,11 +402,13 @@ async function viewDashboard() {
   const view = $('#view');
   view.innerHTML = pageHead('Dashboard',
     `How ${app.settings.shop_name} is doing right now.`,
-    rangeControl() + `<button class="btn btn-ghost btn-sm" id="printBtn">${icon('print', { size: 15 })} Print</button>`) +
+    rangeControl() + `<button class="btn btn-ghost btn-sm" id="printBtn">${icon('print', { size: 15 })} Print</button>
+      <button class="btn btn-danger btn-sm" id="resetShopBtn">${icon('refresh', { size: 15 })} Reset</button>`) +
     `<div id="dashBody"><p class="chart-empty">Loading…</p></div>`;
   wireHead();
   wireRange(viewDashboard);
   $('#printBtn').onclick = () => window.print();
+  $('#resetShopBtn').onclick = resetShop;
 
   const [a, o] = await Promise.all([
     api(`/api/admin/analytics?days=${app.range}`),
@@ -705,7 +699,7 @@ async function viewAnalytics() {
     label: c.name, value: c.revenue, color: PALETTE[i]
   })), { format: moneyShort, centreLabel: 'revenue', nameLabel: 'Category', valueLabel: 'Revenue' });
 
-  const payLabels = { cod: 'Cash on delivery', bank: 'Bank transfer', card: 'Card on delivery' };
+  const payLabels = { stripe: 'Card (Stripe)', cod: 'Cash on delivery', bank: 'Bank transfer', card: 'Card on delivery' };
   donutChart('#chartPayment', a.by_payment.map((p, i) => ({
     label: payLabels[p.payment_method] || p.payment_method, value: p.n, color: PALETTE[i]
   })), { centreLabel: 'orders', format: (n) => String(Math.round(n)), nameLabel: 'Method', valueLabel: 'Orders' });
@@ -1000,6 +994,18 @@ async function viewProducts(params) {
   await load();
 }
 
+const MAX_PHOTOS = 12;
+
+/** A product's photos in order; older rows only have `image_url`. */
+function productPhotos(p) {
+  let list = p?.images;
+  if (typeof list === 'string') { try { list = JSON.parse(list); } catch { list = []; } }
+  if (!Array.isArray(list)) list = [];
+  list = list.filter((u) => typeof u === 'string' && u);
+  if (!list.length && p?.image_url) list = [p.image_url];
+  return list;
+}
+
 function editProduct(p, categories) {
   const isNew = !p;
   const d = p || {
@@ -1012,29 +1018,25 @@ function editProduct(p, categories) {
     <div style="display:grid;grid-template-columns:210px 1fr;gap:24px" class="field-grid">
       <div>
         <label style="font-size:12.5px;font-weight:800;color:var(--ink-2);display:block;margin-bottom:6px">
-          Product photo</label>
+          Product photos</label>
 
         <div class="dropzone" id="dropzone" tabindex="0" role="button"
-             aria-label="Upload a product photo from your device">
+             aria-label="Upload product photos from your device">
           <div class="dz-preview" id="artPreview">${productArt(d)}</div>
-          <div class="dz-overlay"><span>${icon('camera', { size: 26, stroke: 1.6 })}</span>Drop a photo here</div>
+          <div class="dz-overlay"><span>${icon('camera', { size: 26, stroke: 1.6 })}</span>Drop photos here</div>
         </div>
         <input type="file" id="pFile" accept="image/jpeg,image/png,image/webp,image/gif,image/avif"
-               hidden>
+               multiple hidden>
+
+        <div class="photo-strip" id="photoStrip"></div>
 
         <div style="display:flex;gap:8px;margin-top:10px">
           <button class="btn btn-primary btn-sm" type="button" id="pickPhoto" style="flex:1">
-            ${d.image_url ? 'Change photo' : 'Upload photo'}</button>
-          <button class="btn btn-ghost btn-sm" type="button" id="removePhoto"
-                  ${d.image_url ? '' : 'hidden'}>Remove</button>
+            Upload photos</button>
         </div>
-        <div class="help" id="photoHelp" style="margin-top:7px">
-          ${d.image_url
-            ? 'Photo in use. Remove it to go back to a drawn bouquet.'
-            : 'JPG, PNG or WebP, up to 6 MB. A square photo looks best.'}
-        </div>
+        <div class="help" id="photoHelp" style="margin-top:7px"></div>
 
-        <details class="drawn-fallback" ${d.image_url ? '' : 'open'}>
+        <details class="drawn-fallback" ${productPhotos(d).length ? '' : 'open'}>
           <summary>No photo yet? Use a drawn bouquet</summary>
           <div class="field-row" style="margin-top:12px">
             <label>Colour palette</label>
@@ -1054,7 +1056,6 @@ function editProduct(p, categories) {
             ${icon('refresh', { size: 15 })} Reshuffle arrangement</button>
         </details>
 
-        <input type="hidden" name="image_url" id="pImage" value="${esc(d.image_url || '')}">
       </div>
 
       <div>
@@ -1114,48 +1115,97 @@ function editProduct(p, categories) {
      <button class="btn btn-ghost" data-close>Cancel</button>
      <button class="btn btn-primary" id="saveProduct">${isNew ? 'Create product' : 'Save changes'}</button>`, true);
 
-  /* --- preview: a photo wins, otherwise the drawn bouquet --- */
+  /* --- photos: the first one is the cover; none means the drawn bouquet --- */
+  const photos = productPhotos(d);
+  let shown = 0; // which photo the big preview shows
+
   const repaint = () => {
-    const photo = $('#pImage').value;
+    if (shown >= photos.length) shown = Math.max(0, photos.length - 1);
+    const photo = photos[shown];
     $('#artPreview').innerHTML = photo
       ? `<img src="${esc(photo)}" alt="">`
       : `<svg viewBox="0 0 ${ART} ${ART}" style="width:100%;height:100%">${
           bouquetSVG($('#pSeed').value, $('#pPalette').value, $('#pBlooms').value, ART, ART)}</svg>`;
-    $('#removePhoto').hidden = !photo;
-    $('#pickPhoto').textContent = photo ? 'Change photo' : 'Upload photo';
-    $('#photoHelp').textContent = photo
-      ? 'Photo in use. Remove it to go back to a drawn bouquet.'
-      : 'JPG, PNG or WebP, up to 6 MB. A square photo looks best.';
+
+    $('#photoStrip').innerHTML = photos.map((url, i) => `
+      <div class="ps-item ${i === shown ? 'on' : ''}" data-i="${i}">
+        <button type="button" class="ps-thumb" data-act="show" title="Preview">
+          <img src="${esc(url)}" alt="Photo ${i + 1}"></button>
+        ${i === 0 ? '<span class="ps-cover">Cover</span>' : ''}
+        <div class="ps-tools">
+          ${i > 0 ? `<button type="button" data-act="left" title="Move earlier" aria-label="Move photo ${i + 1} earlier">‹</button>` : ''}
+          ${i > 0 ? `<button type="button" data-act="cover" title="Make cover" aria-label="Make photo ${i + 1} the cover">★</button>` : ''}
+          ${i < photos.length - 1 ? `<button type="button" data-act="right" title="Move later" aria-label="Move photo ${i + 1} later">›</button>` : ''}
+          <button type="button" data-act="remove" title="Remove" aria-label="Remove photo ${i + 1}">✕</button>
+        </div>
+      </div>`).join('');
+
+    const full = photos.length >= MAX_PHOTOS;
+    $('#pickPhoto').disabled = full;
+    $('#pickPhoto').textContent = photos.length ? 'Add more photos' : 'Upload photos';
+    $('#photoHelp').textContent = full
+      ? `That's the maximum of ${MAX_PHOTOS} photos.`
+      : photos.length
+        ? `${photos.length} of ${MAX_PHOTOS} photos. The first is the cover — use ★ to change it.`
+        : 'JPG, PNG or WebP, up to 6 MB each. You can pick several at once. Square photos look best.';
   };
 
-  /* --- upload --- */
-  async function uploadPhoto(file) {
-    if (!file) return;
-    if (!file.type.startsWith('image/')) return toast('That file is not an image.', 'error');
-    if (file.size > 6_000_000) return toast('That image is larger than 6 MB.', 'error');
+  /* --- upload: one request per file, in the order they were picked --- */
+  async function uploadPhotos(fileList) {
+    const files = [...(fileList || [])];
+    if (!files.length) return;
+    const room = MAX_PHOTOS - photos.length;
+    if (room <= 0) return toast(`A product can have up to ${MAX_PHOTOS} photos.`, 'error');
+    if (files.length > room) toast(`Only the first ${room} will be added (max ${MAX_PHOTOS}).`, 'error');
 
     const zone = $('#dropzone');
     zone.classList.add('busy');
-    $('#photoHelp').textContent = 'Uploading…';
-    try {
-      // The raw file is the body — no multipart wrapper needed for one file.
-      const res = await fetch('/api/admin/upload', {
-        method: 'POST',
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
-        body: file
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Upload failed');
-      $('#pImage').value = data.url;
-      repaint();
-      toast(`Photo added (${fileSize(data.bytes)}). Remember to save.`);
-    } catch (err) {
-      toast(err.message, 'error');
-      repaint();
-    } finally {
-      zone.classList.remove('busy');
+    $('#pickPhoto').disabled = true;
+    let added = 0;
+    for (const [n, file] of files.slice(0, room).entries()) {
+      if (!file.type.startsWith('image/')) { toast(`${file.name} is not an image.`, 'error'); continue; }
+      if (file.size > 6_000_000) { toast(`${file.name} is larger than 6 MB.`, 'error'); continue; }
+      $('#photoHelp').textContent = `Uploading ${n + 1} of ${Math.min(files.length, room)}…`;
+      try {
+        // The raw file is the body — no multipart wrapper needed.
+        const res = await fetch('/api/admin/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': file.type || 'application/octet-stream' },
+          body: file
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Upload failed');
+        photos.push(data.url);
+        added++;
+        repaint();
+      } catch (err) {
+        toast(`${file.name}: ${err.message}`, 'error');
+      }
     }
+    zone.classList.remove('busy');
+    $('#pFile').value = '';
+    repaint();
+    if (added) toast(`${added} photo${added === 1 ? '' : 's'} added. Remember to save.`);
   }
+
+  $('#photoStrip').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-act]');
+    if (!btn) return;
+    const i = Number(btn.closest('[data-i]').dataset.i);
+    const move = (from, to) => photos.splice(to, 0, photos.splice(from, 1)[0]);
+    switch (btn.dataset.act) {
+      case 'show': shown = i; break;
+      case 'left': move(i, i - 1); shown = i - 1; break;
+      case 'right': move(i, i + 1); shown = i + 1; break;
+      case 'cover': move(i, 0); shown = 0; break;
+      case 'remove':
+        photos.splice(i, 1);
+        if (shown > i) shown--;
+        if (!photos.length) $('.drawn-fallback').open = true;
+        break;
+    }
+    repaint();
+  });
 
   /* --- margin check: a cost above the price loses money on every sale --- */
   const checkMargin = () => {
@@ -1185,7 +1235,7 @@ function editProduct(p, categories) {
   $('#dropzone').addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#pFile').click(); }
   });
-  $('#pFile').addEventListener('change', (e) => uploadPhoto(e.target.files[0]));
+  $('#pFile').addEventListener('change', (e) => uploadPhotos(e.target.files));
 
   for (const type of ['dragenter', 'dragover']) {
     $('#dropzone').addEventListener(type, (e) => {
@@ -1199,14 +1249,8 @@ function editProduct(p, categories) {
       $('#dropzone').classList.remove('over');
     });
   }
-  $('#dropzone').addEventListener('drop', (e) => uploadPhoto(e.dataTransfer?.files?.[0]));
-
-  $('#removePhoto').onclick = () => {
-    $('#pImage').value = '';
-    $('#pFile').value = '';
-    $('.drawn-fallback').open = true;
-    repaint();
-  };
+  $('#dropzone').addEventListener('drop', (e) => uploadPhotos(e.dataTransfer?.files));
+  repaint();
 
   $('#paletteSwatches').addEventListener('click', (e) => {
     const sw = e.target.closest('[data-palette]');
@@ -1222,6 +1266,8 @@ function editProduct(p, categories) {
   $('#saveProduct').onclick = async () => {
     const body = formValues($('#modal'));
     if (!body.name.trim()) return toast('Give the product a name first.', 'error');
+    body.images = photos;
+    body.image_url = photos[0] || '';
     try {
       const r = isNew
         ? await api('/api/admin/products', { method: 'POST', body: JSON.stringify(body) })
@@ -1990,6 +2036,10 @@ const SETTING_GROUPS = [
     ['hero_title', 'Home page headline', 'text'],
     ['hero_body', 'Home page paragraph', 'textarea']
   ]],
+  ['Product page', [
+    ['product_badges', 'Badges under the description', 'textarea'],
+    ['product_trust', 'Boxes under "Add to basket"', 'textarea']
+  ]],
   ['Contact details', [
     ['email', 'Email', 'text'],
     ['phone', 'Phone', 'text'],
@@ -2018,6 +2068,23 @@ async function viewSettings() {
   app.settings = d.settings;
 
   $('#view').innerHTML = pageHead('Settings', 'Everything the shop shows and charges.') + `
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-head"><div><h3>Logo</h3>
+        <div class="cap">Shown in the shop header next to the shop name. A square image works best.</div></div></div>
+      <div class="card-body logo-setting">
+        <div class="logo-preview" id="logoPreview"></div>
+        <div>
+          <div style="display:flex;gap:10px;flex-wrap:wrap">
+            <button class="btn btn-primary" type="button" id="logoUpload">Upload logo</button>
+            <button class="btn btn-ghost" type="button" id="logoRemove">Use placeholder</button>
+          </div>
+          <span class="help" style="display:block;margin-top:8px">JPG, PNG or WebP, up to 6 MB.
+            Saved straight away — no need to press Save settings.</span>
+          <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp" hidden>
+        </div>
+      </div>
+    </div>
+
     <form id="settingsForm">
       <div class="grid-2">
         ${SETTING_GROUPS.map(([title, fields]) => `
@@ -2032,7 +2099,10 @@ async function viewSettings() {
                     : `<input type="${type}" id="set-${key}" name="${key}" value="${esc(d.settings[key] ?? '')}"
                         ${type === 'number' ? 'step="0.01" min="0"' : ''}>`}
                   ${key === 'payment_methods'
-                    ? '<span class="help">Comma-separated. Available: cod, bank, card.</span>' : ''}
+                    ? '<span class="help">Comma-separated. Available: stripe, cod, bank, card.</span>' : ''}
+                  ${key === 'product_badges' || key === 'product_trust'
+                    ? `<span class="help">One per line. Delete a line to remove it; leave empty to hide the whole row.${
+                      key === 'product_trust' ? ' Write {shipping} for a shipping line worked out from your shipping fee.' : ''}</span>` : ''}
                   ${key === 'order_prefix'
                     ? '<span class="help">Order numbers look like PREFIX-10001.</span>' : ''}
                 </div>`).join('')}
@@ -2082,6 +2152,55 @@ async function viewSettings() {
       </div>
     </div>`;
   wireHead();
+
+  /* --- logo --- */
+  const paintLogo = () => {
+    const url = app.settings.logo_url;
+    $('#logoPreview').innerHTML =
+      `<img src="${esc(url || '/img/logo.svg')}" alt="Current logo">`;
+    $('#logoRemove').hidden = !url;
+  };
+  const saveLogo = async (url) => {
+    const r = await api('/api/admin/settings', {
+      method: 'PUT', body: JSON.stringify({ logo_url: url })
+    });
+    app.settings = r.settings;
+    paintLogo();
+  };
+  paintLogo();
+
+  $('#logoUpload').onclick = () => $('#logoFile').click();
+  $('#logoFile').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    if (file.size > 6_000_000) return toast('That image is larger than 6 MB.', 'error');
+    const btn = $('#logoUpload');
+    btn.disabled = true;
+    btn.textContent = 'Uploading…';
+    try {
+      const res = await fetch('/api/admin/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': file.type || 'application/octet-stream' },
+        body: file
+      });
+      const up = await res.json();
+      if (!res.ok) throw new Error(up.error || 'Upload failed');
+      await saveLogo(up.url);
+      toast('Logo updated.');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Upload logo';
+    }
+  });
+  $('#logoRemove').onclick = async () => {
+    try {
+      await saveLogo('');
+      toast('Logo removed. The shop shows the placeholder again.');
+    } catch (err) { toast(err.message, 'error'); }
+  };
 
   $('#settingsForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2160,13 +2279,22 @@ async function viewSettings() {
     toast(r.message);
   };
 
-  $('#clearDemo').onclick = async () => {
-    if (!await confirmAction('Clear all orders and analytics?',
-      'Every order, customer and visitor statistic is deleted permanently. Products, settings and discount codes are kept. There is no undo.',
-      'Delete everything')) return;
+  $('#clearDemo').onclick = resetShop;
+}
+
+/** One-click reset of orders, customers and analytics — shared by Dashboard and Settings. */
+async function resetShop() {
+  if (!await confirmAction('Reset the shop?',
+    'Every order, customer, visitor statistic and activity log entry is deleted, and order numbers start again. ' +
+    'Products, stock, photos, settings and discount codes are kept. A snapshot is saved first (Settings → Snapshots).',
+    'Reset everything', 'RESET')) return;
+  try {
     const r = await api('/api/admin/demo-data', { method: 'POST', body: JSON.stringify({ action: 'clear' }) });
     toast(r.message);
-  };
+    route();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 }
 
 /* ================================================================== */

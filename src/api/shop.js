@@ -4,14 +4,66 @@
  * Rule of the house: the browser may propose product ids and quantities, but
  * every price, discount and total is recalculated here from the database.
  */
-import { all, get, run, transaction, getSettings, nowISO } from '../db.js';
-import { ok, fail, readBody, str, intOr, isEmail } from '../lib/http.js';
+import { all, get, run, transaction, getSettings, nowISO, productImages } from '../db.js';
+import { ok, fail, readBody, readRawBody, str, intOr, isEmail } from '../lib/http.js';
 import { visitorKey } from '../auth.js';
+import { getRates, visitorCountry } from '../currency.js';
+import { stripeEnabled, createCheckoutSession, retrieveSession, verifyWebhook } from '../stripe.js';
 
 const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
+/** A one-item-per-line setting as a list, blank lines dropped. */
+const lines = (v) => String(v ?? '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 8);
+
+/* ------------------------------------------------------------------ */
+/* Card payments (Stripe)                                              */
+/* ------------------------------------------------------------------ */
+
+function requestOrigin(req) {
+  const proto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim() ||
+    (req.socket?.encrypted ? 'https' : 'http');
+  return `${proto}://${req.headers['x-forwarded-host'] || req.headers.host}`;
+}
+
+/** Record a confirmed Stripe payment once, however many times it is reported. */
+async function markOrderPaid(orderNo, note) {
+  return transaction(async (tx) => {
+    const o = await tx.get('SELECT id, status, payment_status FROM orders WHERE order_no = ? FOR UPDATE', [orderNo]);
+    if (!o || o.payment_status === 'paid') return Boolean(o);
+    const t = nowISO();
+    await tx.run("UPDATE orders SET payment_status = 'paid', updated_at = ? WHERE id = ?", [t, o.id]);
+    await tx.run('INSERT INTO order_events(order_id, status, note, created_at) VALUES(?,?,?,?)',
+      [o.id, o.status, note, t]);
+    return true;
+  });
+}
+
+/**
+ * An unpaid card order whose payment was abandoned: cancel it and put the
+ * stock and coupon use back, so it does not block other shoppers.
+ */
+async function releaseUnpaidOrder(orderNo, note) {
+  return transaction(async (tx) => {
+    const o = await tx.get('SELECT * FROM orders WHERE order_no = ? FOR UPDATE', [orderNo]);
+    if (!o || o.payment_status !== 'unpaid' || o.status !== 'pending') return false;
+    for (const it of await tx.all('SELECT product_id, qty FROM order_items WHERE order_id = ?', [o.id])) {
+      if (it.product_id)
+        await tx.run('UPDATE products SET stock = stock + ?, sold = GREATEST(0, sold - ?) WHERE id = ?',
+          [it.qty, it.qty, it.product_id]);
+    }
+    if (o.coupon_code)
+      await tx.run('UPDATE coupons SET used_count = GREATEST(0, used_count - 1) WHERE UPPER(code) = UPPER(?)',
+        [o.coupon_code]);
+    const t = nowISO();
+    await tx.run("UPDATE orders SET status = 'cancelled', updated_at = ? WHERE id = ?", [t, o.id]);
+    await tx.run('INSERT INTO order_events(order_id, status, note, created_at) VALUES(?,?,?,?)',
+      [o.id, 'cancelled', note, t]);
+    return true;
+  });
+}
+
 const PRODUCT_FIELDS = `p.id, p.name, p.slug, p.description, p.price, p.old_price, p.stock,
-  p.palette, p.seed, p.bloom_count, p.image_url, p.badge, p.featured, p.sold, p.sku,
+  p.palette, p.seed, p.bloom_count, p.image_url, p.images, p.badge, p.featured, p.sold, p.sku,
   p.category_id, c.name AS category, c.slug AS category_slug`;
 
 async function ratingFor(productId) {
@@ -24,7 +76,7 @@ async function ratingFor(productId) {
 }
 
 async function decorate(p) {
-  return { ...p, ...(await ratingFor(p.id)), in_stock: p.stock > 0 };
+  return { ...p, images: productImages(p), ...(await ratingFor(p.id)), in_stock: p.stock > 0 };
 }
 
 const decorateAll = (rows) => Promise.all(rows.map(decorate));
@@ -50,6 +102,9 @@ export async function findCoupon(code, subtotal) {
     : round2(Math.min(c.value, subtotal));
   return { coupon: c, discount };
 }
+
+/** Cart lines as shoppers may see them: no cost price or stock level. */
+const publicLines = (lines) => lines.map(({ unit_cost, stock, ...l }) => l);
 
 /** Rebuild a cart from the database. Never trusts client-side prices. */
 export async function priceCart(items, couponCode) {
@@ -129,8 +184,14 @@ export function registerShopRoutes(router) {
         instagram: s.instagram, facebook: s.facebook, tiktok: s.tiktok, pinterest: s.pinterest,
         shipping_flat: Number(s.shipping_flat), free_shipping_over: Number(s.free_shipping_over),
         payment_methods: String(s.payment_methods).split(',').filter(Boolean),
-        hero_interval: Math.min(120, Math.max(2, Number(s.hero_interval) || 10))
+        stripe_ready: stripeEnabled(),
+        hero_interval: Math.min(120, Math.max(2, Number(s.hero_interval) || 10)),
+        logo_url: s.logo_url || '',
+        product_badges: lines(s.product_badges),
+        product_trust: lines(s.product_trust),
+        currency_code: String(s.currency_code || 'USD').toUpperCase()
       },
+      visitor_country: visitorCountry(req),
       hero_slides: heroSlides,
       categories,
       faqs,
@@ -144,6 +205,13 @@ export function registerShopRoutes(router) {
   });
 
   /* --- catalogue --- */
+  /* --- exchange rates for showing prices in the visitor's currency --- */
+  router.get('/api/shop/rates', async (req, res) => {
+    const s = await getSettings();
+    const base = String(s.currency_code || 'USD').toUpperCase();
+    ok(res, { base, rates: await getRates(base) });
+  });
+
   router.get('/api/products', async (req, res) => {
     const u = req.url_parsed.searchParams;
     const where = ['p.active = 1'];
@@ -214,7 +282,8 @@ export function registerShopRoutes(router) {
   /* --- cart + coupon --- */
   router.post('/api/cart/price', async (req, res) => {
     const body = await readBody(req);
-    ok(res, await priceCart(body.items, str(body.coupon, 40)));
+    const { cost_total, ...priced } = await priceCart(body.items, str(body.coupon, 40));
+    ok(res, { ...priced, lines: publicLines(priced.lines) });
   });
 
   /* --- checkout --- */
@@ -232,6 +301,8 @@ export function registerShopRoutes(router) {
     const settings = await getSettings();
     const allowedPay = String(settings.payment_methods).split(',');
     const payment = allowedPay.includes(body.payment_method) ? body.payment_method : allowedPay[0];
+    if (payment === 'stripe' && !stripeEnabled())
+      return fail(res, 503, 'Card payments are not available yet. Please try again soon.');
     const t = nowISO();
 
     let result;
@@ -315,14 +386,91 @@ export function registerShopRoutes(router) {
       throw err;
     }
 
+    let checkoutUrl = null;
+    if (payment === 'stripe') {
+      try {
+        const session = await createCheckoutSession({
+          order: { order_no: result.orderNo, total: priced.total, ship_email: email },
+          items: priced.lines,
+          currency: settings.currency_code,
+          shopName: settings.shop_name,
+          origin: requestOrigin(req)
+        });
+        checkoutUrl = session.url;
+      } catch (err) {
+        console.error('[stripe] could not start checkout:', err.message);
+        await releaseUnpaidOrder(result.orderNo, 'Card payment could not be started');
+        return fail(res, 502, 'We could not start the card payment. Please try again.');
+      }
+    }
+
     ok(res, {
       order_no: result.orderNo,
+      checkout_url: checkoutUrl,
       total: priced.total,
+      subtotal: priced.subtotal,
+      discount: priced.discount,
+      shipping: priced.shipping,
+      lines: publicLines(priced.lines),
+      coupon: priced.coupon,
       currency: settings.currency_symbol,
       email,
       payment_method: payment,
       message: 'Order placed'
     });
+  });
+
+  /* --- card payment: shopper returns from Stripe --- */
+  router.post('/api/orders/confirm-payment', async (req, res) => {
+    const body = await readBody(req);
+    const orderNo = str(body.order_no, 40);
+    const sessionId = str(body.session_id, 200);
+    if (!orderNo || !sessionId.startsWith('cs_')) return fail(res, 400, 'Missing payment details.');
+    if (!stripeEnabled()) return fail(res, 503, 'Card payments are not available.');
+
+    let session;
+    try { session = await retrieveSession(sessionId); }
+    catch { return fail(res, 404, 'We could not find that payment.'); }
+
+    // The session must belong to this order, or any paid session could unlock any order.
+    if (session.metadata?.order_no !== orderNo) return fail(res, 400, 'That payment is for a different order.');
+
+    if (session.payment_status === 'paid') {
+      await markOrderPaid(orderNo, `Paid by card via Stripe (${session.payment_intent || session.id})`);
+      return ok(res, { paid: true });
+    }
+    ok(res, { paid: false, status: session.status });
+  });
+
+  /* --- card payment: shopper pressed "back" on the Stripe page --- */
+  router.post('/api/orders/cancel-payment', async (req, res) => {
+    const body = await readBody(req);
+    const orderNo = str(body.order_no, 40);
+    const email = str(body.email, 160).toLowerCase();
+    const o = await get('SELECT payment_method FROM orders WHERE order_no = ? AND LOWER(ship_email) = ?',
+      [orderNo, email]);
+    if (!o || o.payment_method !== 'stripe') return fail(res, 404, 'Order not found.');
+    ok(res, { released: await releaseUnpaidOrder(orderNo, 'Card payment cancelled by customer') });
+  });
+
+  /* --- card payment: Stripe's server-to-server confirmation --- */
+  router.post('/api/stripe/webhook', async (req, res) => {
+    const raw = (await readRawBody(req, 1_000_000)).toString('utf8');
+    const event = verifyWebhook(raw, req.headers['stripe-signature']);
+    if (!event) return fail(res, 400, 'Invalid signature');
+
+    const session = event.data?.object || {};
+    const orderNo = session.metadata?.order_no;
+    if (orderNo) {
+      if ((event.type === 'checkout.session.completed' && session.payment_status === 'paid') ||
+          event.type === 'checkout.session.async_payment_succeeded') {
+        await markOrderPaid(orderNo, `Paid by card via Stripe (${session.payment_intent || session.id})`);
+      } else if (event.type === 'checkout.session.expired' ||
+                 event.type === 'checkout.session.async_payment_failed') {
+        await releaseUnpaidOrder(orderNo, 'Card payment not completed — order released');
+      }
+    }
+    ok(res, { received: true });
   });
 
   /* --- order tracking --- */

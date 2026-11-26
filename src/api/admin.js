@@ -6,8 +6,8 @@
  * resolves the session cookie and attaches `req.admin`.
  */
 import {
-  all, get, run, transaction,
-  getSettings, setSetting, nowISO, logActivity, slugify, DEFAULT_SETTINGS
+  all, get, run, exec, transaction,
+  getSettings, setSetting, nowISO, logActivity, slugify, DEFAULT_SETTINGS, productImages
 } from '../db.js';
 import { ok, fail, readBody, readRawBody, str, numOr, intOr, bool01 } from '../lib/http.js';
 import { saveUpload, deleteUpload, isOwnUpload } from '../storage.js';
@@ -400,7 +400,35 @@ export function registerAdminRoutes(router) {
     });
   });
 
+  const MAX_PRODUCT_PHOTOS = 12;
+
+  /** Accept `images` as an array or JSON string; fall back to a lone `image_url`. */
+  const imagesFrom = (b) => {
+    let list = b.images;
+    if (typeof list === 'string') { try { list = JSON.parse(list); } catch { list = []; } }
+    if (!Array.isArray(list)) list = [];
+    list = [...new Set(list.map((u) => str(u, 500)).filter(Boolean))].slice(0, MAX_PRODUCT_PHOTOS);
+    if (!list.length && str(b.image_url, 500)) list = [str(b.image_url, 500)];
+    return list;
+  };
+
+  /** Delete uploaded files no product or slide refers to any more. */
+  const dropUnusedUploads = async (urls) => {
+    for (const url of urls) {
+      if (!isOwnUpload(url)) continue;
+      const used = await get(
+        `SELECT (SELECT COUNT(*)::int FROM products WHERE image_url = ? OR images LIKE ?)
+              + (SELECT COUNT(*)::int FROM hero_slides WHERE image_url = ?) AS c`,
+        [url, `%${JSON.stringify(url)}%`, url]);
+      if (used.c === 0) await deleteUpload(url);
+    }
+  };
+
   const productPayload = (b, existing = {}) => ({
+    ...(() => {
+      const images = imagesFrom(b);
+      return { images: JSON.stringify(images), image_url: images[0] || null };
+    })(),
     name: str(b.name, 140) || existing.name,
     description: str(b.description, 4000),
     category_id: intOr(b.category_id, 0) || null,
@@ -413,7 +441,6 @@ export function registerAdminRoutes(router) {
     palette: str(b.palette, 20) || 'rose',
     seed: intOr(b.seed, Math.floor(Math.random() * 9999)),
     bloom_count: Math.max(1, Math.min(9, intOr(b.bloom_count, 4))),
-    image_url: str(b.image_url, 500) || null,
     badge: str(b.badge, 40) || null,
     featured: bool01(b.featured),
     active: bool01(b.active)
@@ -430,10 +457,10 @@ export function registerAdminRoutes(router) {
     const r = await run(
       `INSERT INTO products
        (name, slug, description, category_id, price, old_price, cost, stock, sku, palette, seed,
-        bloom_count, image_url, badge, featured, active, sold, created_at, updated_at)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?) RETURNING id`,
+        bloom_count, image_url, images, badge, featured, active, sold, created_at, updated_at)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?) RETURNING id`,
       [p.name, slug, p.description, p.category_id, p.price, p.old_price, p.cost, p.stock, p.sku,
-        p.palette, p.seed, p.bloom_count, p.image_url, p.badge, p.featured, p.active, t, t]);
+        p.palette, p.seed, p.bloom_count, p.image_url, p.images, p.badge, p.featured, p.active, t, t]);
 
     await logActivity(req.admin, 'product_create', p.name);
     ok(res, { id: r.rows[0]?.id, message: `"${p.name}" added.` });
@@ -447,17 +474,15 @@ export function registerAdminRoutes(router) {
 
     await run(
       `UPDATE products SET name=?, description=?, category_id=?, price=?, old_price=?,
-       cost=?, stock=?, sku=?, palette=?, seed=?, bloom_count=?, image_url=?, badge=?, featured=?,
-       active=?, updated_at=? WHERE id=?`,
+       cost=?, stock=?, sku=?, palette=?, seed=?, bloom_count=?, image_url=?, images=?, badge=?,
+       featured=?, active=?, updated_at=? WHERE id=?`,
       [p.name, p.description, p.category_id, p.price, p.old_price, p.cost, p.stock, p.sku,
-        p.palette, p.seed, p.bloom_count, p.image_url, p.badge, p.featured, p.active,
+        p.palette, p.seed, p.bloom_count, p.image_url, p.images, p.badge, p.featured, p.active,
         nowISO(), existing.id]);
 
-    // A photo that is no longer referenced anywhere can go.
-    if (existing.image_url && existing.image_url !== p.image_url && isOwnUpload(existing.image_url)) {
-      const stillUsed = await get('SELECT COUNT(*)::int AS c FROM products WHERE image_url = ?', [existing.image_url]);
-      if (stillUsed.c === 0) await deleteUpload(existing.image_url);
-    }
+    // Photos that were removed and are no longer referenced anywhere can go.
+    const kept = new Set(JSON.parse(p.images));
+    await dropUnusedUploads(productImages(existing).filter((u) => !kept.has(u)));
 
     await logActivity(req.admin, 'product_update', p.name);
     ok(res, { message: `"${p.name}" saved.` });
@@ -502,7 +527,8 @@ export function registerAdminRoutes(router) {
     const url = str(b.url, 500);
     if (!isOwnUpload(url)) return fail(res, 400, 'That is not an uploaded photo.');
 
-    const stillUsed = await get('SELECT COUNT(*)::int AS c FROM products WHERE image_url = ?', [url]);
+    const stillUsed = await get('SELECT COUNT(*)::int AS c FROM products WHERE image_url = ? OR images LIKE ?',
+      [url, `%${JSON.stringify(url)}%`]);
     if (stillUsed.c > 0) return ok(res, { message: 'Photo is still used by a product; kept.' });
 
     await deleteUpload(url);
@@ -973,9 +999,9 @@ export function registerAdminRoutes(router) {
     // Drop the file too, unless a product is also using it.
     if (isOwnUpload(slide.image_url)) {
       const used = await get(
-        `SELECT (SELECT COUNT(*)::int FROM products WHERE image_url = ?)
+        `SELECT (SELECT COUNT(*)::int FROM products WHERE image_url = ? OR images LIKE ?)
               + (SELECT COUNT(*)::int FROM hero_slides WHERE image_url = ?) AS c`,
-        [slide.image_url, slide.image_url]
+        [slide.image_url, `%${JSON.stringify(slide.image_url)}%`, slide.image_url]
       );
       if (used.c === 0) await deleteUpload(slide.image_url);
     }
@@ -1048,7 +1074,7 @@ export function registerAdminRoutes(router) {
     if (!snap) return fail(res, 404, 'That snapshot no longer exists.');
     res.writeHead(200, {
       'Content-Type': 'application/json; charset=utf-8',
-      'Content-Disposition': `attachment; filename="phool-maya-${snap.created_at.slice(0, 19).replace(/[:]/g, '-')}.json"`,
+      'Content-Disposition': `attachment; filename="maya-flora-${snap.created_at.slice(0, 19).replace(/[:]/g, '-')}.json"`,
       'Content-Length': Buffer.byteLength(snap.json)
     });
     res.end(snap.json);
@@ -1092,15 +1118,27 @@ export function registerAdminRoutes(router) {
   router.post('/api/admin/demo-data', async (req, res) => {
     const b = await readBody(req);
     if (b.action === 'clear') {
-      await takeSnapshot('clear-all');
-      await run('DELETE FROM order_items');
-      await run('DELETE FROM order_events');
-      await run('DELETE FROM orders');
-      await run('DELETE FROM events');
-      await run('DELETE FROM customers');
-      await run('UPDATE products SET sold = 0');
-      await logActivity(req.admin, 'demo_clear', 'All orders, customers and analytics cleared');
-      return ok(res, { message: 'All orders, customers and analytics history cleared.' });
+      if (req.admin.role !== 'owner') return fail(res, 403, 'Only the shop owner can reset the shop.');
+      // The snapshot is the only way back, so refuse to go on without one.
+      if (!await takeSnapshot('before-reset'))
+        return fail(res, 500, 'Could not take a safety snapshot first, so nothing was deleted.');
+
+      await transaction(async (tx) => {
+        // Orders still holding stock give it back before they disappear.
+        const held = await tx.all(
+          `SELECT oi.product_id, SUM(oi.qty)::int AS qty FROM order_items oi
+           JOIN orders o ON o.id = oi.order_id
+           WHERE o.status NOT IN ('cancelled','refunded') AND oi.product_id IS NOT NULL
+           GROUP BY oi.product_id`);
+        for (const h of held)
+          await tx.run('UPDATE products SET stock = stock + ? WHERE id = ?', [h.qty, h.product_id]);
+        await tx.run('UPDATE products SET sold = 0');
+        await tx.run('UPDATE coupons SET used_count = 0');
+      });
+      // RESTART IDENTITY so order numbers begin again from the first one.
+      await exec('TRUNCATE order_items, order_events, orders, customers, events, activity_log RESTART IDENTITY');
+      await logActivity(req.admin, 'shop_reset', 'Orders, customers and analytics reset');
+      return ok(res, { message: 'Shop reset — orders, customers and analytics cleared. A snapshot was saved first.' });
     }
     const made = await generateDemoData(Math.min(180, intOr(b.days, 60)));
     await logActivity(req.admin, 'demo_seed', `${made.orders} sample orders`);

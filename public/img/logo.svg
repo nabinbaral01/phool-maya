@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" role="img" aria-label="Maya Flora logo placeholder">
+  <!-- Placeholder logo. Replace this file with the real logo (keep the name logo.svg,
+       or save a PNG as logo.png and update the src in public/index.html). -->
+  <circle cx="60" cy="60" r="60" fill="#F2C9D9"/>
+  <g fill="#E39AB6">
+    <ellipse cx="60" cy="38" rx="13" ry="20"/>
+    <ellipse cx="60" cy="38" rx="13" ry="20" transform="rotate(72 60 60)"/>
+    <ellipse cx="60" cy="38" rx="13" ry="20" transform="rotate(144 60 60)"/>
+    <ellipse cx="60" cy="38" rx="13" ry="20" transform="rotate(216 60 60)"/>
+    <ellipse cx="60" cy="38" rx="13" ry="20" transform="rotate(288 60 60)"/>
+  </g>
+  <circle cx="60" cy="60" r="15" fill="#FFFDFB"/>
+  <text x="60" y="65" text-anchor="middle" font-family="Georgia, serif" font-style="italic"
+        font-size="15" font-weight="600" fill="#C3728F">MF</text>
+</svg>

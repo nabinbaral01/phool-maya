@@ -19,7 +19,7 @@ const server = createServer((req, res) => {
 
 server.listen(PORT, HOST, () => {
   console.log('');
-  console.log('  Phool Maya is running');
+  console.log('  Maya Flora is running');
   console.log(`  Shop   ->  http://localhost:${PORT}`);
   console.log(`  Admin  ->  http://localhost:${PORT}/admin`);
   console.log('');

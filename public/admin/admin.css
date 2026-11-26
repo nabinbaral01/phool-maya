@@ -1,5 +1,5 @@
 /* ==========================================================================
-   Phool Maya — admin panel
+   Maya Flora — admin panel
    Light surface only, deliberately: one calm look that matches the shop.
    ========================================================================== */
 
@@ -452,6 +452,24 @@ textarea { resize: vertical; min-height: 92px; line-height: 1.6; }
   content: 'Uploading…'; font-size: 12.5px;
 }
 
+/* ---------- Product photo strip (many photos, first = cover) ---------- */
+.photo-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+.photo-strip:empty { display: none; }
+.ps-item { position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden;
+  border: 2px solid var(--line); background: var(--surface-2); }
+.ps-item.on { border-color: var(--rose); }
+.ps-thumb { all: unset; display: block; width: 100%; height: 100%; cursor: pointer; }
+.ps-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ps-cover { position: absolute; top: 4px; left: 4px; padding: 1px 6px; border-radius: 99px;
+  background: var(--rose); color: #fff; font-size: 10px; font-weight: 800; pointer-events: none; }
+.ps-tools { position: absolute; inset: auto 0 0 0; display: flex; justify-content: center; gap: 3px;
+  padding: 3px; background: rgba(40, 24, 28, .55); opacity: 0; transition: opacity .15s; }
+.ps-item:hover .ps-tools, .ps-item:focus-within .ps-tools { opacity: 1; }
+@media (hover: none) { .ps-tools { opacity: 1; } }
+.ps-tools button { all: unset; cursor: pointer; width: 20px; height: 20px; border-radius: 6px;
+  display: grid; place-items: center; color: #fff; font-size: 12px; font-weight: 800; }
+.ps-tools button:hover, .ps-tools button:focus-visible { background: rgba(255, 255, 255, .25); }
+
 .drawn-fallback { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }
 .drawn-fallback summary {
   cursor: pointer; font-size: 12.5px; font-weight: 800; color: var(--ink-2);
@@ -536,3 +554,11 @@ table.data tbody tr.picked:hover { background: #F2D9E3; }
   border-radius: 0; padding: 9px 11px; font-size: 12.5px; background: var(--surface-1);
 }
 .slide-caption:focus { border-color: var(--line); background: var(--surface-2); }
+
+/* Settings → Logo */
+.logo-setting { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.logo-preview {
+  width: 84px; height: 84px; flex: none; border-radius: 50%; overflow: hidden;
+  border: 1px solid var(--line-strong); background: var(--surface-2);
+}
+.logo-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }

@@ -1,5 +1,5 @@
 /**
- * Chart library for the Phool Maya dashboard.
+ * Chart library for the Maya Flora dashboard.
  *
  * Hand-rolled SVG — no chart dependency to install, break, or wait on.
  * Every form here follows one house style: thin marks, hairline grid,

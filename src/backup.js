@@ -26,7 +26,7 @@ const TABLES = [
  */
 export async function takeSnapshot(reason = 'manual') {
   try {
-    const dump = { app: 'phool-maya', version: 1, created_at: nowISO(), reason, tables: {} };
+    const dump = { app: 'maya-flora', version: 1, created_at: nowISO(), reason, tables: {} };
 
     for (const t of TABLES) {
       // `events` is deliberately excluded — it is by far the largest table and

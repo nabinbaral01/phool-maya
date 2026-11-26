@@ -1,9 +1,9 @@
 {
-  "name": "phool-maya",
+  "name": "maya-flora",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Phool Maya — handmade pipe cleaner flower shop with full admin panel & analytics",
+  "description": "Maya Flora — handmade pipe cleaner flower shop with full admin panel & analytics",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

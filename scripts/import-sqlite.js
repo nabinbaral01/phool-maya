@@ -16,7 +16,7 @@ const file = process.argv[2] || 'data/sqlite-export.json';
 const ORDER = [
   'settings', 'admins', 'categories', 'products', 'customers',
   'orders', 'order_items', 'order_events', 'coupons', 'reviews',
-  'subscribers', 'messages', 'faqs', 'activity_log', 'events'
+  'subscribers', 'messages', 'faqs', 'activity_log', 'events', 'hero_slides'
 ];
 
 const CONFLICT_KEY = {

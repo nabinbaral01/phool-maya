@@ -220,12 +220,12 @@ CREATE TABLE IF NOT EXISTS snapshots (
 /* ------------------------------------------------------------------ */
 
 export const DEFAULT_SETTINGS = {
-  shop_name: 'Phool Maya',
+  shop_name: 'Maya Flora',
   tagline: 'Handmade Pipe Cleaner Flowers That Never Fade',
-  announcement: 'Free shipping on orders over $120  ·  Handmade to order in 2–4 days',
+  announcement: '',
   currency_symbol: '$',
   currency_code: 'USD',
-  email: 'hello@phoolmaya.com',
+  email: 'hello@mayaflora.com',
   phone: '+45 00 00 00 00',
   address: 'Sønderborg, Denmark',
   hours: 'Mon–Fri, 9–17 CET',
@@ -237,25 +237,33 @@ export const DEFAULT_SETTINGS = {
   free_shipping_over: '120',
   low_stock_threshold: '5',
   order_prefix: 'FB',
-  payment_methods: 'cod,bank,card',
+  payment_methods: 'stripe',
   hero_title: 'Flowers that stay as long as the feeling does.',
   hero_body: 'Hand-twisted pipe cleaner bouquets — no water, no wilting, no pollen. Just soft, fuzzy colour that sits on the shelf for years.',
   hero_interval: '10',
+  logo_url: '',
+  // Product page: one item per line; leave empty to hide the row.
+  product_badges: 'No water needed\nPet safe\nShips in 2–4 days',
+  product_trust: 'Hand-twisted in small batches\n{shipping}\n14-day returns',
   about: 'Handmade pipe cleaner flowers, twisted with patience in small batches. Designed in Denmark, gifted everywhere.'
 };
 
 /**
  * Settings are read on nearly every request, so they are cached per process and
- * dropped on write. On serverless that cache lives for one warm instance, which
- * is exactly the right lifetime.
+ * dropped on write. On serverless a save only reaches the instance that handled
+ * it, so the cache also expires after a few seconds; otherwise other warm
+ * instances would keep serving old prices and shipping until they restart.
  */
+const SETTINGS_TTL_MS = 5000;
 let settingsCache = null;
+let settingsAt = 0;
 
 export async function getSettings() {
-  if (settingsCache) return settingsCache;
+  if (settingsCache && Date.now() - settingsAt < SETTINGS_TTL_MS) return settingsCache;
   const out = { ...DEFAULT_SETTINGS };
   for (const r of await all('SELECT key, value FROM settings')) out[r.key] = r.value;
   settingsCache = out;
+  settingsAt = Date.now();
   return out;
 }
 
@@ -303,6 +311,30 @@ async function setup() {
   await exec(SCHEMA);
   await seed();
   await migrateCategoryIcons();
+  await migrateProductImages();
+}
+
+/**
+ * Products can carry several photos. `images` holds them all as a JSON array,
+ * in display order; `image_url` stays as the first one (the cover) so lists,
+ * baskets and older code keep working unchanged.
+ */
+async function migrateProductImages() {
+  await exec("ALTER TABLE products ADD COLUMN IF NOT EXISTS images TEXT NOT NULL DEFAULT '[]'");
+  await run(
+    `UPDATE products SET images = json_build_array(image_url)::text
+     WHERE image_url IS NOT NULL AND image_url <> '' AND (images IS NULL OR images = '[]')`
+  );
+}
+
+/** Parse a product's stored `images` into a clean array of URLs. */
+export function productImages(p) {
+  let list = [];
+  try { list = JSON.parse(p?.images || '[]'); } catch { /* bad JSON: treat as none */ }
+  if (!Array.isArray(list)) list = [];
+  list = list.filter((u) => typeof u === 'string' && u);
+  if (!list.length && p?.image_url) list = [p.image_url];
+  return list;
 }
 
 /**

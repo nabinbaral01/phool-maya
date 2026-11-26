@@ -36,6 +36,9 @@ export async function saveUpload(buffer, ext, mime) {
       access: 'public',
       contentType: mime,
       addRandomSuffix: false,
+      // Same name means same bytes (it's a hash), so re-uploading a photo
+      // that is already stored must succeed rather than fail as a duplicate.
+      allowOverwrite: true,
       cacheControlMaxAge: 31536000
     });
     return { url: blob.url, bytes: buffer.length };

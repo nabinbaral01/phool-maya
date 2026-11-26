@@ -15,3 +15,6 @@ data/backups/
 data/pg/
 data/*.json
 .vercel
+
+.vercel
+.env*

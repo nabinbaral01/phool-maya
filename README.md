@@ -1,4 +1,4 @@
-# Phool Maya
+# Maya Flora
 
 A working online shop for handmade pipe cleaner bouquets, with a full admin panel
 and sales analytics.
@@ -53,8 +53,8 @@ Both have free tiers that fit a small shop comfortably.
 ```bash
 git init
 git add .
-git commit -m "Phool Maya"
-git remote add origin https://github.com/YOUR-NAME/phool-maya.git
+git commit -m "Maya Flora"
+git remote add origin https://github.com/YOUR-NAME/maya-flora.git
 git push -u origin main
 ```
 
@@ -141,11 +141,10 @@ small VPS instead (it runs as a normal Node process anywhere).
 
 ### A note on payments
 
-Payment methods are cash on delivery, bank transfer, and card on delivery — all
-settled off-site. **No card details are collected or stored anywhere in this
-codebase.** If you later want to take card payments online, that means adding a
-payment provider (Stripe, eSewa, Khalti, or similar); the order flow is already
-structured so the provider slots in between "place order" and "order confirmed".
+Card payments go through Stripe Checkout (set `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET`;
+see `.env.example`). The older offline methods — cash on delivery, bank transfer, card on delivery — all
+settled off-site — can still be switched on in Settings → Payment methods. **No card
+details touch this codebase:** the shopper types them on Stripe's own page.
 
 ---
 

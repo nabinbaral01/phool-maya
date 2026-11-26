@@ -1,5 +1,5 @@
 /**
- * Phool Maya storefront.
+ * Maya Flora storefront.
  *
  * A small hand-rolled SPA: history routing, a localStorage basket that is
  * always re-priced by the server, and progressive first-party analytics.
@@ -28,10 +28,82 @@ const state = {
   pricing: null
 };
 
-const money = (n) =>
+/* ------------------------------------------------------------------ */
+/* Currency: prices are stored and charged in the shop's currency;     */
+/* visitors abroad see an estimate in their own.                       */
+/* ------------------------------------------------------------------ */
+
+const EURO = 'AT BE HR CY EE FI FR DE GR IE IT LV LT LU MT NL PT SK SI ES';
+const COUNTRY_CURRENCY = {
+  ...Object.fromEntries(EURO.split(' ').map((c) => [c, 'EUR'])),
+  DK: 'DKK', NP: 'NPR', IN: 'INR', US: 'USD', GB: 'GBP', SE: 'SEK', NO: 'NOK', IS: 'ISK',
+  CH: 'CHF', PL: 'PLN', CZ: 'CZK', HU: 'HUF', RO: 'RON', BG: 'BGN', TR: 'TRY', CA: 'CAD',
+  AU: 'AUD', NZ: 'NZD', JP: 'JPY', CN: 'CNY', HK: 'HKD', SG: 'SGD', MY: 'MYR', TH: 'THB',
+  ID: 'IDR', PH: 'PHP', VN: 'VND', KR: 'KRW', PK: 'PKR', BD: 'BDT', LK: 'LKR', BT: 'BTN',
+  AE: 'AED', SA: 'SAR', QA: 'QAR', KW: 'KWD', IL: 'ILS', ZA: 'ZAR', NG: 'NGN', KE: 'KES',
+  EG: 'EGP', BR: 'BRL', MX: 'MXN'
+};
+// Without a geo header (e.g. running locally) the computer's time zone is the best hint.
+const TZ_COUNTRY = {
+  'Asia/Kathmandu': 'NP', 'Asia/Katmandu': 'NP', 'Asia/Kolkata': 'IN', 'Asia/Calcutta': 'IN',
+  'Europe/Copenhagen': 'DK', 'Asia/Thimphu': 'BT', 'Asia/Dhaka': 'BD', 'Asia/Karachi': 'PK',
+  'Asia/Colombo': 'LK', 'Asia/Dubai': 'AE', 'Europe/London': 'GB', 'Europe/Stockholm': 'SE',
+  'Europe/Oslo': 'NO', 'Australia/Sydney': 'AU', 'Asia/Tokyo': 'JP', 'Asia/Singapore': 'SG'
+};
+const CURRENCY_KEY = 'mf_currency';
+
+/** { base, code, rate } — rate is 1 when showing the shop's own currency. */
+const fx = { base: 'USD', code: 'USD', rate: 1, rates: null };
+
+function guessCountry() {
+  if (state.visitor_country) return state.visitor_country;
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (TZ_COUNTRY[tz]) return TZ_COUNTRY[tz];
+  } catch {}
+  const region = (navigator.language || '').split('-')[1];
+  return region ? region.toUpperCase() : '';
+}
+
+function setCurrency(code, remember = false) {
+  const ok = code === fx.base || (fx.rates && fx.rates[code] > 0);
+  fx.code = ok ? code : fx.base;
+  fx.rate = fx.code === fx.base ? 1 : fx.rates[fx.code];
+  if (remember) { try { localStorage.setItem(CURRENCY_KEY, fx.code); } catch {} }
+}
+
+function initCurrency(ratesData) {
+  fx.base = state.settings.currency_code || 'USD';
+  fx.rates = ratesData?.base === fx.base ? ratesData.rates : null;
+  let saved = '';
+  try { saved = localStorage.getItem(CURRENCY_KEY) || ''; } catch {}
+  setCurrency(saved || COUNTRY_CURRENCY[guessCountry()] || fx.base);
+}
+
+/** Amount in the shop's own currency, exactly as it will be charged. */
+const baseMoney = (n) =>
   `${state.settings.currency || '$'}${Number(n || 0).toLocaleString(undefined, {
     minimumFractionDigits: 2, maximumFractionDigits: 2
   })}`;
+
+const money = (n) => {
+  if (fx.code === fx.base) return baseMoney(n);
+  const v = Number(n || 0) * fx.rate;
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency', currency: fx.code, currencyDisplay: 'narrowSymbol',
+      // Large-unit currencies (NPR, INR, JPY…) read better without paise/cents.
+      minimumFractionDigits: fx.rate >= 10 ? 0 : 2, maximumFractionDigits: fx.rate >= 10 ? 0 : 2
+    }).format(v);
+  } catch {
+    return `${fx.code} ${v.toFixed(2)}`;
+  }
+};
+
+/** Shown at checkout when prices are converted, so nobody is surprised by the charge. */
+const chargeNote = (total) => fx.code === fx.base ? '' :
+  `<p class="muted fx-note">Prices in ${esc(fx.code)} are estimates. You will be charged
+   <strong>${baseMoney(total)} ${esc(fx.base)}</strong>.</p>`;
 
 async function api(path, options = {}) {
   const res = await fetch(path, {
@@ -190,6 +262,7 @@ async function refreshCart() {
     ${p.shipping > 0 && p.free_shipping_over > 0
       ? `<div class="line-row muted" style="font-size:12.5px"><span>Spend ${money(p.free_shipping_over - p.subtotal)} more for free shipping</span><span></span></div>` : ''}
     <div class="line-row total"><span>Total</span><span>${money(p.total)}</span></div>
+    ${chargeNote(p.total)}
     <a href="/checkout" data-link class="btn btn-primary btn-block">Checkout</a>`;
 }
 
@@ -296,7 +369,7 @@ async function pageHome() {
     <section class="section">
       <div class="why">
         <div class="why-item">
-          <div class="why-ico" style="background:#F2C9D9;color:#9C4E6C">${icon('handmade', { size: 24 })}</div>
+          <div class="why-ico" style="background:#DCF0D8;color:#1B6B23">${icon('handmade', { size: 24 })}</div>
           <h3>Twisted with care</h3>
           <p>No factories, no moulds — every petal is looped by hand by our small team, so no two bouquets are ever quite the same.</p>
         </div>
@@ -332,7 +405,7 @@ async function pageHome() {
       <div class="testi-grid">
         ${state.testimonials.slice(0, 3).map((t) => {
           const initials = t.name.split(' ').map((w) => w[0]).join('').slice(0, 2);
-          const colors = ['#E39AB6', '#A8C3A0', '#EFC98A', '#C9B7DE'];
+          const colors = ['#2E9B3E', '#A8D3A0', '#1B6B23', '#6DBB72'];
           return `<div class="testi-card">
             <div class="stars">${stars(t.rating)}</div>
             <p>"${esc(t.body)}"</p>
@@ -789,6 +862,20 @@ async function pageShop(params) {
 /* Page: product                                                       */
 /* ------------------------------------------------------------------ */
 
+// Badge and trust lines are free text from Settings; pick an icon by keyword.
+const badgeIcon = (t) => /ship|deliver|post/i.test(t) ? 'products'
+  : /pet|love|gift|heart/i.test(t) ? 'heart' : 'leaf';
+const trustIcon = (t) => t === '{shipping}' || /ship|deliver|post/i.test(t) ? 'truck'
+  : /return|refund|exchange/i.test(t) ? 'returns' : 'handmade';
+
+/** The "{shipping}" placeholder, worked out from the shipping settings. */
+function shippingOffer() {
+  const s = state.settings;
+  if (!(s.shipping_flat > 0)) return 'Free shipping';
+  if (s.free_shipping_over > 0) return `Free shipping over ${money(s.free_shipping_over)}`;
+  return 'Carefully packed';
+}
+
 async function pageProduct(slug) {
   $('#app').innerHTML = `<section class="section">${skeletonGrid(2)}</section>`;
 
@@ -799,6 +886,8 @@ async function pageProduct(slug) {
   const p = data.product;
   track('product_view', { product_id: p.id });
   document.title = `${p.name} | ${state.settings.shop_name}`;
+  const badges = state.settings.product_badges || [];
+  const trust = state.settings.product_trust || [];
 
   $('#app').innerHTML = `
     <section class="section">
@@ -808,7 +897,14 @@ async function pageProduct(slug) {
       </div>
 
       <div class="pdp">
-        <div class="pdp-media">${productArt(p)}</div>
+        <div class="pdp-gallery">
+          <div class="pdp-media" id="pdpMain">${productArt(p)}</div>
+          ${(p.images || []).length > 1 ? `<div class="pdp-thumbs" id="pdpThumbs">
+            ${p.images.map((url, i) => `<button type="button" class="pdp-thumb ${i === 0 ? 'on' : ''}"
+                data-src="${esc(url)}" aria-label="Show photo ${i + 1} of ${p.images.length}">
+                <img src="${esc(url)}" alt="" loading="lazy"></button>`).join('')}
+          </div>` : ''}
+        </div>
         <div>
           ${p.badge ? `<span class="eyebrow">${esc(p.badge)}</span>` : ''}
           <h1>${esc(p.name)}</h1>
@@ -824,11 +920,9 @@ async function pageProduct(slug) {
           </div>
           <p class="desc">${esc(p.description)}</p>
 
-          <div class="pill-row">
-            <span class="pill">${icon('leaf', { size: 15 })} No water needed</span>
-            <span class="pill">${icon('heart', { size: 15 })} Pet safe</span>
-            <span class="pill">${icon('products', { size: 15 })} Ships in 2–4 days</span>
-          </div>
+          ${badges.length ? `<div class="pill-row">
+            ${badges.map((b) => `<span class="pill">${icon(badgeIcon(b), { size: 15 })} ${esc(b)}</span>`).join('')}
+          </div>` : ''}
 
           <div class="btn-row" style="align-items:center">
             <div class="qty">
@@ -841,11 +935,10 @@ async function pageProduct(slug) {
             </button>
           </div>
 
-          <div class="trust-row">
-            <div class="trust"><div class="t-ico">${icon('handmade', { size: 20 })}</div><div class="t-txt">Hand-twisted<br>in small batches</div></div>
-            <div class="trust"><div class="t-ico">${icon('truck', { size: 20 })}</div><div class="t-txt">Free shipping<br>over ${money(state.settings.free_shipping_over)}</div></div>
-            <div class="trust"><div class="t-ico">${icon('returns', { size: 20 })}</div><div class="t-txt">14-day<br>returns</div></div>
-          </div>
+          ${trust.length ? `<div class="trust-row">
+            ${trust.map((t) => `<div class="trust"><div class="t-ico">${icon(trustIcon(t), { size: 20 })}</div>
+              <div class="t-txt">${t === '{shipping}' ? shippingOffer() : esc(t)}</div></div>`).join('')}
+          </div>` : ''}
         </div>
       </div>
     </section>
@@ -889,6 +982,13 @@ async function pageProduct(slug) {
 
   let qty = 1;
   const setQ = (v) => { qty = Math.max(1, Math.min(p.stock || 1, v)); $('#qtyVal').textContent = qty; };
+  $('#pdpThumbs')?.addEventListener('click', (e) => {
+    const t = e.target.closest('.pdp-thumb');
+    if (!t) return;
+    $('#pdpMain').innerHTML = `<img src="${esc(t.dataset.src)}" alt="${esc(p.name)}">`;
+    $$('.pdp-thumb').forEach((b) => b.classList.toggle('on', b === t));
+  });
+
   $('#qtyMinus').onclick = () => setQ(qty - 1);
   $('#qtyPlus').onclick = () => setQ(qty + 1);
   $('#addBtn').onclick = () => { addToCart(p, qty); openCart(); };
@@ -914,10 +1014,34 @@ async function pageProduct(slug) {
 /* ------------------------------------------------------------------ */
 
 const PAYMENT_LABELS = {
+  stripe: ['Card payment', 'Pay securely by card through Stripe'],
   cod: ['Cash on delivery', 'Pay the courier when your bouquet arrives'],
   bank: ['Bank transfer', 'We email you the account details right away'],
   card: ['Card on delivery', 'Card machine brought to your door']
 };
+
+/** The "Your order" box: items, subtotal, discount, shipping and total. */
+function orderSummary(p, title = 'Your order') {
+  return `
+    <div class="panel order-summary">
+      <h3>${esc(title)}</h3>
+      ${(p.lines || []).map((l) => `
+        <div class="cart-item">
+          <div class="thumb">${bouquet(l)}</div>
+          <div class="ci-body">
+            <div class="ci-name">${esc(l.name)}</div>
+            <div class="ci-price">${l.qty} × ${money(l.unit_price)}</div>
+          </div>
+          <div style="font-weight:800;white-space:nowrap">${money(l.line_total)}</div>
+        </div>`).join('')}
+      <div style="margin-top:18px">
+        <div class="line-row"><span>Subtotal</span><span>${money(p.subtotal)}</span></div>
+        ${p.discount > 0 ? `<div class="line-row" style="color:var(--sage-deep)"><span>Discount ${esc(p.coupon?.code || '')}</span><span>−${money(p.discount)}</span></div>` : ''}
+        <div class="line-row"><span>Shipping</span><span>${p.shipping === 0 ? 'Free' : money(p.shipping)}</span></div>
+        <div class="line-row total"><span>Total</span><span>${money(p.total)}</span></div>
+      </div>
+    </div>`;
+}
 
 async function pageCheckout() {
   if (!state.cart.length) {
@@ -930,14 +1054,14 @@ async function pageCheckout() {
 
   track('begin_checkout');
   const p = (await priceCart()) || {};
-  const methods = state.settings.payment_methods || ['cod'];
+  const methods = state.settings.payment_methods || ['stripe'];
 
   $('#app').innerHTML = `
     <section class="section">
       <div class="crumbs"><a href="/" data-link>Home</a> / Checkout</div>
       <div class="section-head"><div><h2>Checkout</h2><p>We hand-make every order — expect 2–4 days before it ships.</p></div></div>
 
-      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:30px;align-items:start" class="checkout-grid">
+      <div style="display:grid;gap:30px;align-items:start" class="checkout-grid">
         <form class="panel" id="checkoutForm">
           <h3>Delivery details</h3>
           <div class="form-grid">
@@ -965,31 +1089,18 @@ async function pageCheckout() {
           </div>
 
           <div class="form-err" id="coError" style="margin-top:16px"></div>
-          <button class="btn btn-primary btn-block" type="submit" id="placeBtn" style="margin-top:18px">
-            Place order · ${money(p.total)}
+          ${methods.includes('stripe') && !state.settings.stripe_ready
+            ? `<p class="form-err" style="margin-top:16px">Card payments are being set up — checkout opens very soon.</p>` : ''}
+          <button class="btn btn-primary btn-block" type="submit" id="placeBtn" style="margin-top:18px"
+            ${methods.includes('stripe') && !state.settings.stripe_ready ? 'disabled' : ''}>
+            ${methods.includes('stripe') ? 'Continue to payment' : 'Place order'} · ${money(p.total)}
           </button>
+          ${chargeNote(p.total)}
           <p class="muted" style="font-size:12.5px;text-align:center;margin-top:12px">
             No card details are stored on this site.</p>
         </form>
 
-        <div class="panel">
-          <h3>Your order</h3>
-          ${(p.lines || []).map((l) => `
-            <div class="cart-item">
-              <div class="thumb">${bouquet(l)}</div>
-              <div class="ci-body">
-                <div class="ci-name">${esc(l.name)}</div>
-                <div class="ci-price">${l.qty} × ${money(l.unit_price)}</div>
-              </div>
-              <div style="font-weight:800">${money(l.line_total)}</div>
-            </div>`).join('')}
-          <div style="margin-top:18px">
-            <div class="line-row"><span>Subtotal</span><span>${money(p.subtotal)}</span></div>
-            ${p.discount > 0 ? `<div class="line-row" style="color:var(--sage-deep)"><span>Discount ${esc(p.coupon?.code || '')}</span><span>−${money(p.discount)}</span></div>` : ''}
-            <div class="line-row"><span>Shipping</span><span>${p.shipping === 0 ? 'Free' : money(p.shipping)}</span></div>
-            <div class="line-row total"><span>Total</span><span>${money(p.total)}</span></div>
-          </div>
-        </div>
+        ${orderSummary(p)}
       </div>
     </section>`;
 
@@ -1017,10 +1128,17 @@ async function pageCheckout() {
           items: state.cart.map((i) => ({ id: i.id, qty: i.qty }))
         })
       });
+      sessionStorage.setItem('fb_last_order', JSON.stringify(result));
+      if (result.checkout_url) {
+        // Card payment: the basket is kept until Stripe confirms, so a shopper
+        // who backs out of the payment page still has it.
+        btn.textContent = 'Opening secure payment…';
+        location.href = result.checkout_url;
+        return;
+      }
       state.cart = [];
       state.coupon = '';
       saveCart();
-      sessionStorage.setItem('fb_last_order', JSON.stringify(result));
       navigate('/order/' + result.order_no);
     } catch (err) {
       $('#coError').textContent = err.message;
@@ -1030,9 +1148,51 @@ async function pageCheckout() {
   });
 }
 
-function pageOrderConfirmed(orderNo) {
+async function pageOrderConfirmed(orderNo, params = new URLSearchParams()) {
   let info = {};
   try { info = JSON.parse(sessionStorage.getItem('fb_last_order')) || {}; } catch { /* ignore */ }
+
+  // Back from Stripe without paying: release the order and return to checkout.
+  if (params.get('cancelled')) {
+    try {
+      await api('/api/orders/cancel-payment', {
+        method: 'POST', body: JSON.stringify({ order_no: orderNo, email: info.email || '' })
+      });
+    } catch { /* the order expires on its own anyway */ }
+    sessionStorage.removeItem('fb_last_order');
+    toast('Payment cancelled — your basket is still here.');
+    navigate('/checkout', true);
+    return;
+  }
+
+  // Back from Stripe after paying: confirm with the server before saying thanks.
+  const sessionId = params.get('session_id');
+  if (sessionId) {
+    $('#app').innerHTML = `<section class="section"><div class="empty-state">
+      <p>Confirming your payment…</p></div></section>`;
+    let paid = false;
+    for (let attempt = 0; attempt < 4 && !paid; attempt++) {
+      try {
+        paid = (await api('/api/orders/confirm-payment', {
+          method: 'POST', body: JSON.stringify({ order_no: orderNo, session_id: sessionId })
+        })).paid;
+      } catch { /* retry below */ }
+      if (!paid) await new Promise((r) => setTimeout(r, 1500));
+    }
+    if (!paid) {
+      $('#app').innerHTML = `<section class="section" style="max-width:680px"><div class="empty-state">
+        <h2>We're still waiting for the payment</h2>
+        <p class="muted" style="margin-top:10px">If your card was charged, your order ${esc(orderNo)} is safe —
+        it will update in a minute. You can check it any time on the Track Order page.</p>
+        <p style="margin-top:14px"><a href="/track" data-link class="btn btn-primary btn-sm">Track order</a></p>
+      </div></section>`;
+      return;
+    }
+    state.cart = [];
+    state.coupon = '';
+    saveCart();
+    history.replaceState({}, '', '/order/' + encodeURIComponent(orderNo));
+  }
 
   $('#app').innerHTML = `
     <section class="section" style="max-width:680px">
@@ -1044,6 +1204,8 @@ function pageOrderConfirmed(orderNo) {
         <div class="order-no-box">${esc(orderNo)}</div>
         ${info.total ? `<p class="muted">Total ${money(info.total)} · ${esc(PAYMENT_LABELS[info.payment_method]?.[0] || info.payment_method || '')}</p>` : ''}
       </div>
+      ${info.order_no === orderNo && info.lines?.length
+        ? `<div style="margin-top:30px">${orderSummary(info, 'What you ordered')}</div>` : ''}
       <div class="panel" style="margin-top:30px">
         <h3>What happens next</h3>
         <div class="timeline">
@@ -1160,7 +1322,7 @@ function pageContact() {
       <div class="section-head"><div><h2>Say hello</h2>
         <p>Custom colours, bulk orders, or a question about an order — we read everything.</p></div></div>
 
-      <div style="display:grid;grid-template-columns:1.4fr 1fr;gap:26px;align-items:start" class="checkout-grid">
+      <div style="display:grid;gap:26px;align-items:start" class="checkout-grid">
         <form class="panel" id="contactForm">
           <div class="form-grid">
             <div class="form-row"><label for="cName">Your name *</label><input id="cName" required maxlength="120"></div>
@@ -1281,7 +1443,7 @@ async function render() {
     else if (path === '/shop') await pageShop(params);
     else if (path.startsWith('/product/')) await pageProduct(path.slice(9));
     else if (path === '/checkout') await pageCheckout();
-    else if (path.startsWith('/order/')) pageOrderConfirmed(decodeURIComponent(path.slice(7)));
+    else if (path.startsWith('/order/')) await pageOrderConfirmed(decodeURIComponent(path.slice(7)), params);
     else if (path === '/track') pageTrack(params);
     else if (path === '/contact') pageContact();
     else pageNotFound();
@@ -1304,11 +1466,31 @@ async function render() {
 /* Chrome (header/footer) + global listeners                           */
 /* ------------------------------------------------------------------ */
 
+function paintCurrencyPicker() {
+  const sel = $('#currencySel');
+  if (!sel) return;
+  const codes = [...new Set([fx.base, fx.code, 'DKK', 'EUR', 'USD', 'GBP', 'INR', 'NPR',
+    ...Object.values(COUNTRY_CURRENCY)])]
+    .filter((c) => c === fx.base || (fx.rates && fx.rates[c] > 0));
+  sel.hidden = codes.length < 2;
+  sel.innerHTML = codes.map((c) =>
+    `<option value="${c}"${c === fx.code ? ' selected' : ''}>${c}</option>`).join('');
+  sel.onchange = async () => {
+    setCurrency(sel.value, true);
+    await render();
+    refreshCart();
+  };
+}
+
 function paintChrome() {
   const s = state.settings;
   $('#announce').textContent = s.announcement || '';
   $('#announce').hidden = !s.announcement;
   $('#brandName').textContent = s.shop_name;
+  paintCurrencyPicker();
+  // Uploaded logo from Settings; the bundled placeholder otherwise.
+  const logoImg = $('.logo-mark img');
+  if (logoImg) logoImg.src = s.logo_url || '/img/logo.svg';
   $('#footBrand').textContent = s.shop_name;
   $('#footAbout').textContent = s.about;
   $('#footEmail').innerHTML = icon('mail', { size: 15 }) + ' ' + esc(s.email);
@@ -1393,8 +1575,13 @@ window.addEventListener('popstate', render);
   loadCart();
   saveCart();
   try {
-    const data = await api('/api/shop/bootstrap');
+    // Rates are optional: if they fail, prices simply stay in the shop's currency.
+    const [data, rates] = await Promise.all([
+      api('/api/shop/bootstrap'),
+      api('/api/shop/rates').catch(() => null)
+    ]);
     Object.assign(state, data);
+    initCurrency(rates);
   } catch {
     $('#app').innerHTML = `<section class="section"><div class="empty-state">
       <div class="e-ico">${icon('offline', { size: 42, stroke: 1.4 })}</div><h2>The shop is offline</h2>
