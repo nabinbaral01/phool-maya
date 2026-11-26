@@ -765,13 +765,50 @@ async function openQuickView(slug) {
 /* Page: shop                                                          */
 /* ------------------------------------------------------------------ */
 
+/* Card photo: one image, or a sliding strip when the product has several. */
+function cardArt(p) {
+  const imgs = p.images || [];
+  if (imgs.length < 2) return productArt(p);
+  return `<div class="cm-track" data-count="${imgs.length}">
+      ${imgs.map((url, i) => `<img src="${esc(url)}" alt="${i ? '' : esc(p.name)}" loading="lazy">`).join('')}
+    </div>
+    <div class="cm-dots" aria-hidden="true">${imgs.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>`;
+}
+
+/* Hovering a card steps through its photos every 2 seconds; leaving resets it. */
+const CARD_SLIDE_MS = 2000;
+function cardSlide(media, i) {
+  const track = media.querySelector('.cm-track');
+  track.style.transform = `translateX(-${i * 100}%)`;
+  media.querySelectorAll('.cm-dots i').forEach((d, n) => d.classList.toggle('on', n === i));
+  media.dataset.slide = i;
+}
+document.addEventListener('mouseover', (e) => {
+  const media = e.target.closest?.('.card-media');
+  if (!media || media.contains(e.relatedTarget) || !media.querySelector('.cm-track')) return;
+  const count = Number(media.querySelector('.cm-track').dataset.count);
+  const step = () => {
+    if (!media.isConnected) return clearInterval(media._slideTimer);
+    cardSlide(media, (Number(media.dataset.slide || 0) + 1) % count);
+  };
+  step();
+  clearInterval(media._slideTimer);
+  media._slideTimer = setInterval(step, CARD_SLIDE_MS);
+});
+document.addEventListener('mouseout', (e) => {
+  const media = e.target.closest?.('.card-media');
+  if (!media || media.contains(e.relatedTarget) || !media.querySelector('.cm-track')) return;
+  clearInterval(media._slideTimer);
+  cardSlide(media, 0);
+});
+
 function productCard(p) {
   const out = !p.in_stock;
   return `<article class="card">
     <a href="/product/${esc(p.slug)}" data-link class="card-media">
       ${out ? '<span class="badge stock-out">Sold out</span>'
         : p.badge ? `<span class="badge">${esc(p.badge)}</span>` : ''}
-      ${productArt(p)}
+      ${cardArt(p)}
       <button class="quick-add" data-add="${p.id}" data-slug="${esc(p.slug)}" ${out ? 'disabled' : ''}>
         ${out ? 'Out of stock' : '+ Add to basket'}
       </button>
