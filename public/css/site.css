@@ -915,3 +915,6 @@ footer::before {
   .hero-art { display: none; }
   .hero { padding-top: 30px; }
 }
+
+/* The ring already frames the photo; the soft blob behind it read as a second, offset halo */
+.hero-art:has(.hero-slider) .hero-blob { display: none; }

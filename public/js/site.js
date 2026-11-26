@@ -496,16 +496,40 @@ function mountHeroSlider() {
   const root = $('#heroSlider');
   if (!root) return;
 
-  const slides = $$('.hero-slide', root);
-  const dots = $$('[data-dot]', root);
-  if (slides.length < 2) return; // a single photo needs no timer
+  let slides = $$('.hero-slide', root);
+  let dots = $$('[data-dot]', root);
 
   const seconds = Math.min(120, Math.max(2, Number(state.settings.hero_interval) || 10));
   const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
   let index = 0;
   let timer = null;
 
+  /*
+   * A photo whose file is missing would leave an empty circle with a caption
+   * floating in it. Drop that slide; with none left, show the drawn bouquet.
+   */
+  const drop = (fig) => {
+    const i = slides.indexOf(fig);
+    if (i < 0) return;
+    slides.splice(i, 1)[0].remove();
+    dots.splice(i, 1)[0]?.remove();
+    if (!slides.length) {
+      stop();
+      root.outerHTML = `<svg viewBox="0 0 400 400" aria-hidden="true">${bouquetSVG(7, 'rose', 5, 400, 400)}</svg>`;
+      return;
+    }
+    if (slides.length < 2) { stop(); root.querySelector('.hero-dots')?.remove(); }
+    show(index >= i ? index - 1 : index);
+  };
+  for (const fig of slides) {
+    const img = fig.querySelector('img');
+    if (img.complete && img.naturalWidth === 0) queueMicrotask(() => drop(fig));
+    else img.addEventListener('error', () => drop(fig), { once: true });
+    img.loading = 'eager'; // find broken files now, not when their turn comes
+  }
+
   const show = (next) => {
+    if (!slides.length) return;
     index = (next + slides.length) % slides.length;
     slides.forEach((s, i) => {
       s.classList.toggle('on', i === index);
@@ -518,7 +542,7 @@ function mountHeroSlider() {
   };
 
   const start = () => {
-    if (reduced) return;
+    if (reduced || slides.length < 2) return;
     stop();
     timer = setInterval(() => show(index + 1), seconds * 1000);
   };
@@ -528,7 +552,10 @@ function mountHeroSlider() {
   // to look at the photo they just chose.
   const goto = (i) => { show(i); start(); };
 
-  dots.forEach((d, i) => d.addEventListener('click', () => goto(i)));
+  root.addEventListener('click', (e) => {
+    const d = e.target.closest('[data-dot]');
+    if (d) goto(dots.indexOf(d));
+  });
 
   // Mouse hover pauses; a finger "hovering" would stop it for good on phones.
   root.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') stop(); });
