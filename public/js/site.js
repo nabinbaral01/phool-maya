@@ -288,15 +288,9 @@ async function pageHome() {
       <div>
         <span class="eyebrow">Handmade · Never wilts</span>
         <h1>${esc(s.hero_title)}</h1>
-        <p class="lead">${esc(s.hero_body)}</p>
         <div class="btn-row">
           <a href="/shop" data-link class="btn btn-primary">Shop bouquets</a>
           <a href="/shop?category=diy-kits" data-link class="btn btn-outline">Try a DIY kit</a>
-        </div>
-        <div class="stat-row">
-          <div class="stat"><span class="num">${state.stats.sold || 0}+</span><span class="label">Bouquets gifted</span></div>
-          <div class="stat"><span class="num">${state.stats.rating || 5}★</span><span class="label">Average rating</span></div>
-          <div class="stat"><span class="num">${state.stats.products || 0}</span><span class="label">Designs in store</span></div>
         </div>
       </div>
       <div class="hero-art">
@@ -359,7 +353,6 @@ async function pageHome() {
       <div class="section-head">
         <div>
           <h2>Best-loved bouquets</h2>
-          <p>Our most-gifted arrangements, twisted and shaped entirely by hand.</p>
         </div>
         <a href="/shop" data-link class="see-all">Shop all bouquets →</a>
       </div>

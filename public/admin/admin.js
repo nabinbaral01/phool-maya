@@ -2033,8 +2033,7 @@ const SETTING_GROUPS = [
     ['tagline', 'Tagline', 'text'],
     ['announcement', 'Announcement bar', 'text'],
     ['about', 'Footer blurb', 'textarea'],
-    ['hero_title', 'Home page headline', 'text'],
-    ['hero_body', 'Home page paragraph', 'textarea']
+    ['hero_title', 'Home page headline', 'text']
   ]],
   ['Product page', [
     ['product_badges', 'Badges under the description', 'textarea'],
