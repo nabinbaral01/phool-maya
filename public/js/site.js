@@ -466,6 +466,32 @@ let heroStop = null;
  * Only one photo is ever "on"; the rest sit underneath at opacity 0, so the
  * transition costs nothing but a compositor pass and there is no layout shift.
  */
+/**
+ * Call `fn(+1)` on a left swipe and `fn(-1)` on a right swipe. A clearly
+ * horizontal move only, so vertical page scrolling is left alone. A swipe
+ * also cancels the click that follows it, so swiping a card photo does not
+ * open the product.
+ */
+function onSwipe(el, fn) {
+  let x0 = null, y0 = 0, swiped = false;
+  el.addEventListener('touchstart', (e) => {
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; swiped = false;
+  }, { passive: true });
+  el.addEventListener('touchend', (e) => {
+    if (x0 === null) return;
+    const dx = e.changedTouches[0].clientX - x0;
+    const dy = e.changedTouches[0].clientY - y0;
+    x0 = null;
+    if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      swiped = true;
+      fn(dx < 0 ? 1 : -1);
+    }
+  });
+  el.addEventListener('click', (e) => {
+    if (swiped) { e.preventDefault(); e.stopPropagation(); swiped = false; }
+  }, true);
+}
+
 function mountHeroSlider() {
   const root = $('#heroSlider');
   if (!root) return;
@@ -504,8 +530,10 @@ function mountHeroSlider() {
 
   dots.forEach((d, i) => d.addEventListener('click', () => goto(i)));
 
-  root.addEventListener('pointerenter', stop);
-  root.addEventListener('pointerleave', start);
+  // Mouse hover pauses; a finger "hovering" would stop it for good on phones.
+  root.addEventListener('pointerenter', (e) => { if (e.pointerType === 'mouse') stop(); });
+  root.addEventListener('pointerleave', (e) => { if (e.pointerType === 'mouse') start(); });
+  onSwipe(root, (dir) => goto(index + dir));
   root.addEventListener('focusin', stop);
   root.addEventListener('focusout', start);
   root.addEventListener('keydown', (e) => {
@@ -776,24 +804,75 @@ function cardSlide(media, i) {
   media.querySelectorAll('.cm-dots i').forEach((d, n) => d.classList.toggle('on', n === i));
   media.dataset.slide = i;
 }
-document.addEventListener('mouseover', (e) => {
-  const media = e.target.closest?.('.card-media');
-  if (!media || media.contains(e.relatedTarget) || !media.querySelector('.cm-track')) return;
-  const count = Number(media.querySelector('.cm-track').dataset.count);
-  const step = () => {
-    if (!media.isConnected) return clearInterval(media._slideTimer);
-    cardSlide(media, (Number(media.dataset.slide || 0) + 1) % count);
-  };
-  step();
+const cardCount = (media) => Number(media.querySelector('.cm-track').dataset.count);
+const cardStep = (media, dir) =>
+  cardSlide(media, (Number(media.dataset.slide || 0) + dir + cardCount(media)) % cardCount(media));
+function cardPlay(media, now = true) {
   clearInterval(media._slideTimer);
-  media._slideTimer = setInterval(step, CARD_SLIDE_MS);
+  if (now) cardStep(media, 1);
+  media._slideTimer = setInterval(() => {
+    if (!media.isConnected) return clearInterval(media._slideTimer);
+    cardStep(media, 1);
+  }, CARD_SLIDE_MS);
+}
+const cardStop = (media) => clearInterval(media._slideTimer);
+const slidingMedia = (el) => {
+  const media = el?.closest?.('.card-media');
+  return media?.querySelector('.cm-track') ? media : null;
+};
+
+// Mouse: play while hovered, back to the cover on leave.
+document.addEventListener('mouseover', (e) => {
+  const media = slidingMedia(e.target);
+  if (!media || media.contains(e.relatedTarget)) return;
+  cardPlay(media);
 });
 document.addEventListener('mouseout', (e) => {
-  const media = e.target.closest?.('.card-media');
-  if (!media || media.contains(e.relatedTarget) || !media.querySelector('.cm-track')) return;
-  clearInterval(media._slideTimer);
+  const media = slidingMedia(e.target);
+  if (!media || media.contains(e.relatedTarget)) return;
+  cardStop(media);
   cardSlide(media, 0);
 });
+
+// Touch screens have no hover: swipe a card photo to change it, and cards
+// that are mostly on screen play by themselves every 2 seconds.
+let cardTouch = null;
+document.addEventListener('touchstart', (e) => {
+  const media = slidingMedia(e.target);
+  cardTouch = media ? { media, x: e.touches[0].clientX, y: e.touches[0].clientY, swiped: false } : null;
+}, { passive: true });
+document.addEventListener('touchend', (e) => {
+  if (!cardTouch) return;
+  const dx = e.changedTouches[0].clientX - cardTouch.x;
+  const dy = e.changedTouches[0].clientY - cardTouch.y;
+  if (Math.abs(dx) > 40 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    cardTouch.swiped = true;
+    cardStep(cardTouch.media, dx < 0 ? 1 : -1);
+    cardPlay(cardTouch.media, false); // full 2 s on the photo just chosen
+  }
+}, { passive: true });
+document.addEventListener('click', (e) => {
+  // A swipe must not also open the product page.
+  if (cardTouch?.swiped && cardTouch.media.contains(e.target)) {
+    e.preventDefault(); e.stopPropagation();
+  }
+  cardTouch = null;
+}, true);
+
+if (window.matchMedia('(hover: none)').matches && 'IntersectionObserver' in window &&
+    !window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  const io = new IntersectionObserver((entries) => {
+    for (const en of entries) {
+      if (en.isIntersecting && en.intersectionRatio >= 0.6) cardPlay(en.target, false);
+      else cardStop(en.target);
+    }
+  }, { threshold: [0, 0.6] });
+  const watch = () => $$('.card-media').forEach((m) => {
+    if (!m._watched && m.querySelector('.cm-track')) { m._watched = true; io.observe(m); }
+  });
+  new MutationObserver(watch).observe(document.body, { childList: true, subtree: true });
+  watch();
+}
 
 function productCard(p) {
   const out = !p.in_stock;
