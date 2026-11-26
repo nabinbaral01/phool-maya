@@ -444,7 +444,7 @@ async function viewDashboard() {
         <div style="display:flex;gap:18px;align-items:center;flex-wrap:wrap;margin-top:8px">
           ${delta(k.revenue_change)}
           <span style="color:var(--ink-2);font-size:13px">
-            ${k.orders} orders · ${k.units} bouquets · ${money(k.profit)} profit (${k.margin}% margin)
+            ${k.orders} paid orders · ${k.units} bouquets · ${money(k.profit)} profit (${k.margin}% margin)
           </span>
         </div>
       </div>
