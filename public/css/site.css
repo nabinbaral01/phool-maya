@@ -909,3 +909,9 @@ footer::before {
   .why-item h3 { font-size: 17px; margin-bottom: 4px; }
   .why-item p { font-size: 13.5px; line-height: 1.55; }
 }
+
+/* Phones: no hero photo circle — open straight on the headline */
+@media (max-width: 720px) {
+  .hero-art { display: none; }
+  .hero { padding-top: 30px; }
+}
